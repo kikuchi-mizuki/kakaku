@@ -61,6 +61,10 @@ GOOGLE_APPLICATION_CREDENTIALS=path/to/your/service-account-key.json
 FLASK_ENV=development
 SECRET_KEY=your_secret_key
 
+# ログ設定
+LOG_LEVEL=INFO
+ENABLE_FILE_LOGGING=true
+
 # dモバイルアフィリエイトリンク
 DMOBILE_SWITCH_URL=https://mypage.dmobile.jp/DJP249422?openExternalBrowser=1
 DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
@@ -138,6 +142,12 @@ python run_tests.py
 - エラー監視
 
 ## デプロイ
+
+### クラウド環境での注意点
+
+- **ファイルログ**: クラウド環境では `ENABLE_FILE_LOGGING=false` に設定することを推奨
+- **OpenCV**: `opencv-python-headless` を使用（GUI依存関係なし）
+- **ログディレクトリ**: 自動作成されるため、事前作成不要
 
 ### Railway
 
