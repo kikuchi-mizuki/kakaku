@@ -41,8 +41,8 @@ class CostComparator:
             ]
         }
     
-    def compare_costs(self, current_cost: int, recommended_plan: Dict) -> Dict:
-        """料金比較を実行"""
+    def compare_costs(self, current_cost: int, recommended_plan: Dict, analysis_data: Dict = None) -> Dict:
+        """料金比較を実行（AI診断データ対応）"""
         try:
             plan_cost = recommended_plan['monthly_cost']
             
@@ -59,8 +59,14 @@ class CostComparator:
             # CSV生成
             csv_data = self._generate_csv_data(current_cost, plan_cost)
             
-            # その金額でできること
-            examples = self._get_examples(abs(yearly_saving))
+            # その金額でできること（改善版）
+            examples = self._get_enhanced_examples(abs(yearly_saving))
+            
+            # 損失分析
+            loss_analysis = self._generate_loss_analysis(monthly_saving, yearly_saving, total_50year)
+            
+            # dモバイルのメリット
+            dmobile_benefits = self._get_dmobile_benefits(analysis_data)
             
             return {
                 'current_cost': current_cost,
@@ -71,6 +77,8 @@ class CostComparator:
                 'graph_data': graph_data,
                 'csv_data': csv_data,
                 'examples': examples,
+                'loss_analysis': loss_analysis,
+                'dmobile_benefits': dmobile_benefits,
                 'saving_percentage': (monthly_saving / current_cost * 100) if current_cost > 0 else 0
             }
             
@@ -235,6 +243,126 @@ class CostComparator:
                 '10year': 'N/A',
                 '50year': 'N/A'
             }
+    
+    def _get_enhanced_examples(self, yearly_amount: int) -> Dict:
+        """その金額でできることの例を取得（改善版）"""
+        try:
+            examples = {}
+            
+            # 年間
+            if yearly_amount >= 200000:  # 20万円以上
+                examples['yearly'] = '海外旅行1回'
+            elif yearly_amount >= 100000:  # 10万円以上
+                examples['yearly'] = '国内旅行2回'
+            elif yearly_amount >= 50000:  # 5万円以上
+                examples['yearly'] = '高級レストラン10回'
+            elif yearly_amount >= 30000:  # 3万円以上
+                examples['yearly'] = '映画・コンサート5回'
+            elif yearly_amount >= 20000:  # 2万円以上
+                examples['yearly'] = '新しい服・靴'
+            elif yearly_amount >= 10000:  # 1万円以上
+                examples['yearly'] = 'ちょっとした贅沢'
+            else:
+                examples['yearly'] = '節約効果あり'
+            
+            # 10年
+            ten_year_amount = yearly_amount * 10
+            if ten_year_amount >= 2000000:  # 200万円以上
+                examples['10year'] = '新車購入'
+            elif ten_year_amount >= 1000000:  # 100万円以上
+                examples['10year'] = '高級腕時計'
+            elif ten_year_amount >= 500000:  # 50万円以上
+                examples['10year'] = '海外旅行10回'
+            elif ten_year_amount >= 300000:  # 30万円以上
+                examples['10year'] = '高級家電一式'
+            elif ten_year_amount >= 200000:  # 20万円以上
+                examples['10year'] = '家具・インテリア'
+            elif ten_year_amount >= 100000:  # 10万円以上
+                examples['10year'] = '趣味・娯楽'
+            else:
+                examples['10year'] = '積立効果あり'
+            
+            # 50年
+            fifty_year_amount = yearly_amount * 50
+            if fifty_year_amount >= 10000000:  # 1000万円以上
+                examples['50year'] = '家の頭金'
+            elif fifty_year_amount >= 5000000:  # 500万円以上
+                examples['50year'] = '高級車購入'
+            elif fifty_year_amount >= 2000000:  # 200万円以上
+                examples['50year'] = '海外旅行50回'
+            elif fifty_year_amount >= 1000000:  # 100万円以上
+                examples['50year'] = '高級家具一式'
+            elif fifty_year_amount >= 500000:  # 50万円以上
+                examples['50year'] = '高級家電・PC'
+            elif fifty_year_amount >= 200000:  # 20万円以上
+                examples['50year'] = '趣味・娯楽'
+            else:
+                examples['50year'] = '長期積立効果'
+            
+            return examples
+            
+        except Exception as e:
+            logger.error(f"Error getting enhanced examples: {str(e)}")
+            return {
+                'yearly': 'N/A',
+                '10year': 'N/A',
+                '50year': 'N/A'
+            }
+    
+    def _generate_loss_analysis(self, monthly_saving: int, yearly_saving: int, total_50year: int) -> Dict:
+        """損失分析を生成"""
+        try:
+            return {
+                'monthly_loss': monthly_saving if monthly_saving > 0 else 0,
+                'yearly_loss': yearly_saving if yearly_saving > 0 else 0,
+                'total_50year_loss': total_50year if total_50year > 0 else 0,
+                'loss_summary': self._get_loss_summary(monthly_saving, yearly_saving, total_50year)
+            }
+        except Exception as e:
+            logger.error(f"Error generating loss analysis: {str(e)}")
+            return {
+                'monthly_loss': 0,
+                'yearly_loss': 0,
+                'total_50year_loss': 0,
+                'loss_summary': '損失分析エラー'
+            }
+    
+    def _get_loss_summary(self, monthly_saving: int, yearly_saving: int, total_50year: int) -> str:
+        """損失サマリーを生成"""
+        if monthly_saving > 0:
+            return f"現在のキャリアを使い続けると、月額¥{monthly_saving:,}、年間¥{yearly_saving:,}、50年間で¥{total_50year:,}の損失になります。"
+        else:
+            return "現在のプランが最適です。"
+    
+    def _get_dmobile_benefits(self, analysis_data: Dict = None) -> List[str]:
+        """dモバイルのメリットを取得"""
+        benefits = [
+            "📶 docomo回線で安定した通信品質",
+            "🔄 毎日リセット型データ容量",
+            "📞 かけ放題オプション充実",
+            "💰 格安料金でdocomo回線を利用",
+            "🎯 シンプルで分かりやすい料金体系",
+            "📱 最新スマートフォン対応"
+        ]
+        
+        if analysis_data:
+            # データ使用量に応じたメリット
+            data_usage = analysis_data.get('data_usage', 0)
+            if data_usage > 10:
+                benefits.append("📊 大容量データプランで安心")
+            elif data_usage > 5:
+                benefits.append("📊 中容量データプランで十分")
+            else:
+                benefits.append("📊 小容量データプランで節約")
+            
+            # 通話使用量に応じたメリット
+            call_usage = analysis_data.get('call_usage', 0)
+            if call_usage > 1000:
+                benefits.append("📞 24時間かけ放題オプション推奨")
+            elif call_usage > 500:
+                benefits.append("📞 5分かけ放題オプション推奨")
+        
+        return benefits[:6]  # 最大6個のメリットを返す
     
     def save_graph_to_file(self, graph_data: str, filename: str) -> str:
         """グラフをファイルに保存"""

@@ -59,7 +59,7 @@ class PlanSelector:
         }
     
     def select_plan(self, bill_data: Dict) -> Dict:
-        """請求書データから最適なプランを選択"""
+        """請求書データから最適なプランを選択（Sプラン除外、24時間かけ放題対応）"""
         try:
             current_cost = bill_data.get('total_cost', 0)
             breakdown = bill_data.get('breakdown', {})
@@ -67,11 +67,18 @@ class PlanSelector:
             # 特徴量を抽出
             features = self._extract_features(bill_data)
             
-            # プランを選定
+            # プランを選定（Sプランは除外）
             recommended_plans = self._select_plans_by_features(features, current_cost)
             
             # 最適なプランを選択
             best_plan = recommended_plans[0] if recommended_plans else self.plans['M']
+            
+            # 24時間かけ放題が必要な場合はLプランを提案
+            if self._needs_24h_unlimited(features, bill_data):
+                if best_plan.name == 'dモバイル M':
+                    best_plan = self.plans['L_24h']
+                elif best_plan.name == 'dモバイル L':
+                    best_plan = self.plans['L_24h']
             
             return {
                 'name': best_plan.name,
@@ -80,7 +87,7 @@ class PlanSelector:
                 'voice_option': best_plan.voice_option,
                 'features': best_plan.features,
                 'description': best_plan.description,
-                'alternatives': [p.name for p in recommended_plans[1:3]],  # 代替案
+                'alternatives': [p.name for p in recommended_plans[1:3] if 'S' not in p.name],  # 代替案（Sプラン除外）
                 'selection_reason': self._get_selection_reason(features, best_plan)
             }
             
@@ -173,6 +180,28 @@ class PlanSelector:
                 seen_names.add(plan.name)
         
         return unique_candidates
+    
+    def _needs_24h_unlimited(self, features: Dict, bill_data: Dict) -> bool:
+        """24時間かけ放題が必要かどうかを判定"""
+        # 通話料が高額な場合
+        if features.get('voice_cost_high', False):
+            return True
+        
+        # 既に24時間かけ放題を使用している場合
+        if features.get('has_24h_unlimited', False):
+            return True
+        
+        # 通話時間が多い場合（推定）
+        call_usage = bill_data.get('call_usage', 0)
+        if call_usage > 1000:  # 1000分以上
+            return True
+        
+        # 通話料金が月額2000円以上の場合
+        voice_cost = bill_data.get('breakdown', {}).get('voice', 0)
+        if voice_cost > 2000:
+            return True
+        
+        return False
     
     def _get_selection_reason(self, features: Dict, selected_plan: Plan) -> str:
         """選択理由を生成"""

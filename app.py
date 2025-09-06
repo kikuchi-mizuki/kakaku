@@ -12,6 +12,7 @@ from services.ocr_service import OCRService
 from services.bill_processor import BillProcessor
 from services.plan_selector import PlanSelector
 from services.cost_comparator import CostComparator
+from services.ai_diagnosis_service import AIDiagnosisService
 from utils.logger import setup_logger
 
 app = Flask(__name__)
@@ -48,6 +49,7 @@ ocr_service = OCRService()
 bill_processor = BillProcessor()
 plan_selector = PlanSelector()
 cost_comparator = CostComparator()
+ai_diagnosis_service = AIDiagnosisService()
 
 @app.route('/')
 def health_check():
@@ -116,20 +118,25 @@ def process_bill_async(event, image_path):
         # OCR実行
         ocr_result = ocr_service.extract_text(image_path)
         
-        # 請求書解析
+        # AI診断による詳細分析
+        analysis_data = ai_diagnosis_service.analyze_bill_with_ai(ocr_result['text'])
+        
+        # 請求書解析（AI診断結果を使用）
         bill_data = bill_processor.process_bill(ocr_result)
+        bill_data.update(analysis_data)  # AI診断結果を統合
         
         # プラン選定
         recommended_plan = plan_selector.select_plan(bill_data)
         
-        # 料金比較
+        # 料金比較（AI診断データを含む）
         comparison_result = cost_comparator.compare_costs(
             current_cost=bill_data['total_cost'],
-            recommended_plan=recommended_plan
+            recommended_plan=recommended_plan,
+            analysis_data=analysis_data
         )
         
         # 結果をLINEで送信（プッシュメッセージとして送信）
-        send_push_message(event.source.user_id, bill_data, recommended_plan, comparison_result)
+        send_push_message(event.source.user_id, bill_data, recommended_plan, comparison_result, analysis_data)
         
     except Exception as e:
         logger.error(f"Error processing bill: {str(e)}")
@@ -141,18 +148,21 @@ def process_bill_async(event, image_path):
         if os.path.exists(image_path):
             os.remove(image_path)
 
-def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, comparison_result: dict):
-    """プッシュメッセージで解析結果を送信"""
+def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None):
+    """プッシュメッセージで解析結果を送信（AI診断対応）"""
     try:
         if line_bot_api:
+            # シンプルな結論メッセージ
+            conclusion_message = line_service._create_simple_conclusion_message(bill_data, recommended_plan, comparison_result)
+            
             # メイン結果のFlex Message
-            main_result = line_service._create_main_result_flex(bill_data, recommended_plan, comparison_result)
+            main_result = line_service._create_enhanced_main_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
             # 詳細結果のFlex Message
-            detail_result = line_service._create_detail_result_flex(bill_data, recommended_plan, comparison_result)
+            detail_result = line_service._create_enhanced_detail_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
             # プッシュメッセージを送信
-            line_bot_api.push_message(user_id, [main_result, detail_result])
+            line_bot_api.push_message(user_id, [conclusion_message, main_result, detail_result])
             logger.info(f"Push message sent to user: {user_id}")
     except Exception as e:
         logger.error(f"Error sending push message: {str(e)}")
