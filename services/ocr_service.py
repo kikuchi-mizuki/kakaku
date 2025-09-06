@@ -6,6 +6,7 @@ import pytesseract
 from PIL import Image
 import cv2
 import numpy as np
+import os
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ class OCRService:
     def __init__(self):
         self.vision_client = None
         self._init_google_vision()
+        self._init_opencv()
     
     def _init_google_vision(self):
         """Google Cloud Vision APIの初期化"""
@@ -25,6 +27,17 @@ class OCRService:
                 logger.warning("Google Cloud Vision API credentials not found, using Tesseract fallback")
         except Exception as e:
             logger.error(f"Failed to initialize Google Cloud Vision API: {str(e)}")
+    
+    def _init_opencv(self):
+        """OpenCVの初期化（サーバー環境対応）"""
+        try:
+            # サーバー環境でのOpenCV設定
+            os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
+            # GUI関連の警告を抑制
+            cv2.setUseOptimized(True)
+            logger.info("OpenCV initialized successfully")
+        except Exception as e:
+            logger.warning(f"OpenCV initialization warning: {str(e)}")
     
     def extract_text(self, image_path: str) -> Dict:
         """画像からテキストを抽出"""
@@ -59,7 +72,8 @@ class OCRService:
             # 画像を読み込み
             image = cv2.imread(image_path)
             if image is None:
-                raise ValueError("Could not load image")
+                logger.warning(f"Could not load image with OpenCV, using original: {image_path}")
+                return image_path
             
             # グレースケール変換
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -86,6 +100,7 @@ class OCRService:
             
         except Exception as e:
             logger.error(f"Error preprocessing image: {str(e)}")
+            logger.info("Falling back to original image without preprocessing")
             return image_path  # 元の画像を返す
     
     def _correct_skew(self, image: np.ndarray) -> np.ndarray:
