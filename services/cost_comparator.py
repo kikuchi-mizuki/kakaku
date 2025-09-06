@@ -367,8 +367,14 @@ class CostComparator:
     def _setup_japanese_font(self):
         """日本語フォントの設定（サーバー環境対応）"""
         try:
-            # 利用可能なフォントを確認
-            available_fonts = [f.name for f in plt.font_manager.fontManager.ttflist]
+            # 利用可能なフォントを確認（font_managerが利用可能な場合のみ）
+            try:
+                available_fonts = [f.name for f in plt.font_manager.fontManager.ttflist]
+            except AttributeError:
+                # font_managerが利用できない場合はデフォルトフォントを使用
+                logger.warning("matplotlib.font_manager not available, using default font")
+                plt.rcParams['font.family'] = 'DejaVu Sans'
+                return
             
             # 日本語フォントの優先順位
             japanese_fonts = [

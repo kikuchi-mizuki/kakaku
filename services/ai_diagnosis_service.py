@@ -17,9 +17,8 @@ class AIDiagnosisService:
         
         if self.use_openai:
             try:
-                import openai
-                openai.api_key = Config.OPENAI_API_KEY
-                self.openai_client = openai
+                from openai import OpenAI
+                self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 logger.info("OpenAI API initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
@@ -89,7 +88,7 @@ class AIDiagnosisService:
         try:
             prompt = self._create_analysis_prompt(ocr_text)
             
-            response = self.openai_client.ChatCompletion.create(
+            response = self.openai_client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},

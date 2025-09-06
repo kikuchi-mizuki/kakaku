@@ -179,6 +179,44 @@ class OCRService:
             logger.error(f"Error correcting perspective: {str(e)}")
             return image
     
+    def _setup_tesseract_path(self):
+        """Tesseractのパス設定（環境に応じて自動検出）"""
+        try:
+            # 一般的なTesseractのパス候補
+            possible_paths = [
+                '/usr/bin/tesseract',
+                '/usr/local/bin/tesseract',
+                '/opt/homebrew/bin/tesseract',
+                '/usr/bin/tesseract-ocr',
+                '/usr/local/bin/tesseract-ocr',
+                'tesseract'  # PATHにある場合
+            ]
+            
+            for path in possible_paths:
+                try:
+                    if path == 'tesseract':
+                        # PATHにある場合のテスト
+                        import subprocess
+                        result = subprocess.run([path, '--version'], capture_output=True, text=True, timeout=5)
+                        if result.returncode == 0:
+                            pytesseract.pytesseract.tesseract_cmd = path
+                            logger.info(f"Tesseract found in PATH: {path}")
+                            return
+                    else:
+                        # 絶対パスの場合のテスト
+                        if os.path.exists(path):
+                            pytesseract.pytesseract.tesseract_cmd = path
+                            logger.info(f"Tesseract found at: {path}")
+                            return
+                except Exception:
+                    continue
+            
+            # パスが見つからない場合の警告
+            logger.warning("Tesseract not found in common paths. Please install Tesseract or set TESSERACT_CMD environment variable.")
+            
+        except Exception as e:
+            logger.error(f"Error setting up Tesseract path: {str(e)}")
+    
     def _extract_with_google_vision(self, image_path: str) -> Dict:
         """Google Cloud Vision APIでテキスト抽出"""
         try:
@@ -228,6 +266,9 @@ class OCRService:
     def _extract_with_tesseract(self, image_path: str) -> Dict:
         """Tesseractでテキスト抽出"""
         try:
+            # Tesseractのパス設定（環境に応じて自動検出）
+            self._setup_tesseract_path()
+            
             # 画像を読み込み
             image = Image.open(image_path)
             
