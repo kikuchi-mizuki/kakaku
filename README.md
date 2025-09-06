@@ -65,6 +65,18 @@ SECRET_KEY=your_secret_key
 LOG_LEVEL=INFO
 ENABLE_FILE_LOGGING=true
 
+# AI診断設定
+AI_DIAGNOSIS_ENABLED=true
+AI_CONFIDENCE_THRESHOLD=0.7
+
+# プラン選定設定
+EXCLUDE_S_PLAN=true
+ENABLE_24H_UNLIMITED=true
+
+# 料金比較設定
+SHOW_50YEAR_ANALYSIS=true
+SHOW_DMOBILE_BENEFITS=true
+
 # dモバイルアフィリエイトリンク
 DMOBILE_SWITCH_URL=https://mypage.dmobile.jp/DJP249422?openExternalBrowser=1
 DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
@@ -82,6 +94,28 @@ DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
 1. LINE Developers Consoleでチャネルを作成
 2. Webhook URLを設定: `https://your-domain.com/webhook`
 3. チャネルアクセストークンとシークレットを取得
+
+### 5. 環境変数の詳細説明
+
+#### 必須設定
+- `LINE_CHANNEL_ACCESS_TOKEN`: LINE Botのチャネルアクセストークン
+- `LINE_CHANNEL_SECRET`: LINE Botのチャネルシークレット
+
+#### AI診断設定
+- `AI_DIAGNOSIS_ENABLED`: AI診断機能の有効/無効 (true/false)
+- `AI_CONFIDENCE_THRESHOLD`: AI診断の信頼度閾値 (0.0-1.0)
+
+#### プラン選定設定
+- `EXCLUDE_S_PLAN`: Sプランを除外するか (true/false)
+- `ENABLE_24H_UNLIMITED`: 24時間かけ放題オプションを有効にするか (true/false)
+
+#### 料金比較設定
+- `SHOW_50YEAR_ANALYSIS`: 50年累積分析を表示するか (true/false)
+- `SHOW_DMOBILE_BENEFITS`: dモバイルのメリットを表示するか (true/false)
+
+#### ログ設定
+- `ENABLE_FILE_LOGGING`: ファイルログを有効にするか (true/false)
+- `LOG_LEVEL`: ログレベル (DEBUG/INFO/WARNING/ERROR)
 
 ## 実行方法
 

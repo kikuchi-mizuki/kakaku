@@ -52,3 +52,16 @@ class Config:
     
     # ログ設定
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    ENABLE_FILE_LOGGING = os.getenv('ENABLE_FILE_LOGGING', 'true').lower() == 'true'
+    
+    # AI診断設定
+    AI_DIAGNOSIS_ENABLED = os.getenv('AI_DIAGNOSIS_ENABLED', 'true').lower() == 'true'
+    AI_CONFIDENCE_THRESHOLD = float(os.getenv('AI_CONFIDENCE_THRESHOLD', '0.7'))
+    
+    # プラン選定設定
+    EXCLUDE_S_PLAN = os.getenv('EXCLUDE_S_PLAN', 'true').lower() == 'true'
+    ENABLE_24H_UNLIMITED = os.getenv('ENABLE_24H_UNLIMITED', 'true').lower() == 'true'
+    
+    # 料金比較設定
+    SHOW_50YEAR_ANALYSIS = os.getenv('SHOW_50YEAR_ANALYSIS', 'true').lower() == 'true'
+    SHOW_DMOBILE_BENEFITS = os.getenv('SHOW_DMOBILE_BENEFITS', 'true').lower() == 'true'
