@@ -108,54 +108,176 @@ class AIDiagnosisService:
         return 'Unknown Plan'
 
     def _extract_line_cost(self, text: str) -> int:
-        """回線費用の抽出（端末代金を除外）"""
-        # 金額のパターンを検索
-        amount_patterns = [
-            r'¥([0-9,]+)',
-            r'([0-9,]+)円',
-            r'([0-9,]+)'
-        ]
-        
-        line_costs = []
-        
-        # 回線費用に関連するキーワードの周辺から金額を抽出
-        for keyword in self.line_cost_keywords:
-            pattern = f'{keyword}[：:]*\s*¥?([0-9,]+)'
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches:
-                try:
-                    cost = int(match.replace(',', ''))
-                    if 100 <= cost <= 100000:  # 妥当な範囲の金額
-                        line_costs.append(cost)
-                except ValueError:
+        """回線費用の抽出（端末代金を除外）- 改善版"""
+        try:
+            # より詳細な金額抽出パターン
+            amount_patterns = [
+                r'¥([0-9,]+)',
+                r'([0-9,]+)円',
+                r'([0-9,]+)',
+                r'([0-9]+)'
+            ]
+            
+            # 請求書の構造を分析
+            lines = text.split('\n')
+            line_costs = []
+            total_cost = 0
+            
+            # 1. 明細項目から回線費用を抽出
+            for line in lines:
+                line = line.strip()
+                if not line:
                     continue
-        
-        # 端末代金を除外
-        terminal_costs = self._extract_terminal_cost(text)
-        
-        # 回線費用の合計を計算（端末代金を除外）
-        total_line_cost = sum(line_costs)
-        if terminal_costs > 0:
-            total_line_cost = max(0, total_line_cost - terminal_costs)
-        
-        return total_line_cost
+                
+                # 回線費用に関連するキーワードをチェック
+                for keyword in self.line_cost_keywords:
+                    if keyword in line:
+                        # 金額を抽出
+                        for pattern in amount_patterns:
+                            matches = re.findall(pattern, line)
+                            for match in matches:
+                                try:
+                                    cost = int(match.replace(',', ''))
+                                    if 100 <= cost <= 100000:  # 妥当な範囲
+                                        line_costs.append(cost)
+                                        logger.info(f"Found line cost: {keyword} = ¥{cost:,}")
+                                except ValueError:
+                                    continue
+            
+            # 2. 合計金額から端末代金を除外
+            total_amount = self._extract_total_amount(text)
+            terminal_cost = self._extract_terminal_cost(text)
+            
+            if total_amount > 0:
+                # 合計金額から端末代金を引いたものを回線費用とする
+                line_cost = max(0, total_amount - terminal_cost)
+                logger.info(f"Calculated line cost: Total({total_amount:,}) - Terminal({terminal_cost:,}) = {line_cost:,}")
+                return line_cost
+            
+            # 3. 明細項目の合計を使用
+            if line_costs:
+                total_line_cost = sum(line_costs)
+                logger.info(f"Sum of line costs: {total_line_cost:,}")
+                return total_line_cost
+            
+            # 4. フォールバック: 月額料金の推定
+            estimated_cost = self._estimate_monthly_cost(text)
+            if estimated_cost > 0:
+                logger.info(f"Estimated monthly cost: {estimated_cost:,}")
+                return estimated_cost
+            
+            logger.warning("Could not extract line cost")
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error extracting line cost: {str(e)}")
+            return 0
+    
+    def _extract_total_amount(self, text: str) -> int:
+        """請求書の合計金額を抽出"""
+        try:
+            # 合計金額のパターン
+            total_patterns = [
+                r'合計[：:]*\s*¥?([0-9,]+)',
+                r'請求金額[：:]*\s*¥?([0-9,]+)',
+                r'総額[：:]*\s*¥?([0-9,]+)',
+                r'月額料金[：:]*\s*¥?([0-9,]+)',
+                r'料金合計[：:]*\s*¥?([0-9,]+)',
+                r'請求額[：:]*\s*¥?([0-9,]+)',
+                r'支払金額[：:]*\s*¥?([0-9,]+)'
+            ]
+            
+            for pattern in total_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        amount = int(match.replace(',', ''))
+                        if 1000 <= amount <= 100000:  # 妥当な範囲
+                            logger.info(f"Found total amount: ¥{amount:,}")
+                            return amount
+                    except ValueError:
+                        continue
+            
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error extracting total amount: {str(e)}")
+            return 0
+    
+    def _estimate_monthly_cost(self, text: str) -> int:
+        """月額料金の推定"""
+        try:
+            # キャリア別の推定料金
+            carrier = self._detect_carrier(text)
+            
+            # 一般的な月額料金の範囲
+            estimated_costs = {
+                'docomo': 5000,
+                'au': 4500,
+                'softbank': 4000,
+                'rakuten': 3000,
+                'ymobile': 3500,
+                'uq': 3000,
+                'ahamo': 3000,
+                'povo': 3000,
+                'LINEMO': 3000
+            }
+            
+            if carrier in estimated_costs:
+                return estimated_costs[carrier]
+            
+            return 4000  # デフォルト推定値
+            
+        except Exception as e:
+            logger.error(f"Error estimating monthly cost: {str(e)}")
+            return 0
 
     def _extract_terminal_cost(self, text: str) -> int:
-        """端末代金の抽出"""
-        terminal_costs = []
-        
-        for keyword in self.terminal_keywords:
-            pattern = f'{keyword}[：:]*\s*¥?([0-9,]+)'
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches:
-                try:
-                    cost = int(match.replace(',', ''))
-                    if 1000 <= cost <= 200000:  # 端末代金の妥当な範囲
-                        terminal_costs.append(cost)
-                except ValueError:
-                    continue
-        
-        return sum(terminal_costs)
+        """端末代金の抽出 - 改善版"""
+        try:
+            terminal_costs = []
+            
+            # 端末代金のパターンを拡張
+            terminal_patterns = [
+                r'端末代金[：:]*\s*¥?([0-9,]+)',
+                r'端末決済[：:]*\s*¥?([0-9,]+)',
+                r'端末料金[：:]*\s*¥?([0-9,]+)',
+                r'機種代金[：:]*\s*¥?([0-9,]+)',
+                r'スマートフォン代金[：:]*\s*¥?([0-9,]+)',
+                r'iPhone代金[：:]*\s*¥?([0-9,]+)',
+                r'Android代金[：:]*\s*¥?([0-9,]+)',
+                r'端末分割[：:]*\s*¥?([0-9,]+)',
+                r'端末ローン[：:]*\s*¥?([0-9,]+)',
+                r'端末購入[：:]*\s*¥?([0-9,]+)',
+                r'デバイス代金[：:]*\s*¥?([0-9,]+)',
+                r'ハードウェア代金[：:]*\s*¥?([0-9,]+)',
+                r'端末価格[：:]*\s*¥?([0-9,]+)',
+                r'機種価格[：:]*\s*¥?([0-9,]+)',
+                r'月割[：:]*\s*¥?([0-9,]+)',
+                r'分割払い[：:]*\s*¥?([0-9,]+)'
+            ]
+            
+            for pattern in terminal_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        cost = int(match.replace(',', ''))
+                        if 1000 <= cost <= 200000:  # 端末代金の妥当な範囲
+                            terminal_costs.append(cost)
+                            logger.info(f"Found terminal cost: ¥{cost:,}")
+                    except ValueError:
+                        continue
+            
+            # 端末代金の合計
+            total_terminal_cost = sum(terminal_costs)
+            if total_terminal_cost > 0:
+                logger.info(f"Total terminal cost: ¥{total_terminal_cost:,}")
+            
+            return total_terminal_cost
+            
+        except Exception as e:
+            logger.error(f"Error extracting terminal cost: {str(e)}")
+            return 0
 
     def _extract_data_usage(self, text: str) -> float:
         """データ使用量の抽出（GB）"""
@@ -237,6 +359,15 @@ class AIDiagnosisService:
         
         if analysis['call_usage'] > 0:
             details.append(f"通話時間: {analysis['call_usage']}分")
+        
+        # 信頼度の表示
+        confidence = analysis.get('confidence', 0.0)
+        if confidence > 0.8:
+            details.append(f"分析信頼度: 高 ({confidence:.1%})")
+        elif confidence > 0.5:
+            details.append(f"分析信頼度: 中 ({confidence:.1%})")
+        else:
+            details.append(f"分析信頼度: 低 ({confidence:.1%})")
         
         return details
 

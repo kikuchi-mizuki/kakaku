@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 class CostComparator:
     def __init__(self):
-        # フォント設定（日本語対応）
-        plt.rcParams['font.family'] = ['DejaVu Sans', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Takao', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Noto Sans CJK JP']
+        # フォント設定（日本語対応、サーバー環境対応）
+        self._setup_japanese_font()
         
         # グラフのスタイル設定
         plt.style.use('default')
@@ -119,10 +119,10 @@ class CostComparator:
                    markersize=4,
                    markevery=5)
             
-            # グラフの装飾
-            ax.set_title('50年間の累積差額', fontsize=16, fontweight='bold', pad=20)
-            ax.set_xlabel('年数', fontsize=12)
-            ax.set_ylabel('累積差額 (円)', fontsize=12)
+            # グラフの装飾（英語で表示してフォント問題を回避）
+            ax.set_title('50-Year Cumulative Difference', fontsize=16, fontweight='bold', pad=20)
+            ax.set_xlabel('Years', fontsize=12)
+            ax.set_ylabel('Cumulative Difference (JPY)', fontsize=12)
             
             # グリッド
             ax.grid(True, alpha=0.3)
@@ -136,17 +136,17 @@ class CostComparator:
             # 重要なポイントをハイライト
             if len(cumulative_savings) >= 10:
                 ax.axhline(y=cumulative_savings[9], color='gray', linestyle='--', alpha=0.5)
-                ax.text(10, cumulative_savings[9], f'10年: ¥{cumulative_savings[9]:,.0f}', 
+                ax.text(10, cumulative_savings[9], f'10Y: ¥{cumulative_savings[9]:,.0f}', 
                        ha='left', va='bottom', fontsize=10)
             
             if len(cumulative_savings) >= 25:
                 ax.axhline(y=cumulative_savings[24], color='gray', linestyle='--', alpha=0.5)
-                ax.text(25, cumulative_savings[24], f'25年: ¥{cumulative_savings[24]:,.0f}', 
+                ax.text(25, cumulative_savings[24], f'25Y: ¥{cumulative_savings[24]:,.0f}', 
                        ha='left', va='bottom', fontsize=10)
             
             # 最終値を表示
             final_value = cumulative_savings[-1]
-            ax.text(50, final_value, f'50年: ¥{final_value:,.0f}', 
+            ax.text(50, final_value, f'50Y: ¥{final_value:,.0f}', 
                    ha='right', va='bottom', fontsize=12, fontweight='bold')
             
             # レイアウト調整
@@ -363,6 +363,45 @@ class CostComparator:
                 benefits.append("📞 5分かけ放題オプション推奨")
         
         return benefits[:6]  # 最大6個のメリットを返す
+    
+    def _setup_japanese_font(self):
+        """日本語フォントの設定（サーバー環境対応）"""
+        try:
+            # 利用可能なフォントを確認
+            available_fonts = [f.name for f in plt.font_manager.fontManager.ttflist]
+            
+            # 日本語フォントの優先順位
+            japanese_fonts = [
+                'Noto Sans CJK JP',
+                'Noto Sans JP', 
+                'Hiragino Sans',
+                'Yu Gothic',
+                'Meiryo',
+                'Takao',
+                'IPAexGothic',
+                'IPAPGothic',
+                'VL PGothic',
+                'DejaVu Sans'
+            ]
+            
+            # 利用可能な日本語フォントを探す
+            selected_font = None
+            for font in japanese_fonts:
+                if font in available_fonts:
+                    selected_font = font
+                    break
+            
+            if selected_font:
+                plt.rcParams['font.family'] = selected_font
+                logger.info(f"Japanese font set to: {selected_font}")
+            else:
+                # 日本語フォントが見つからない場合は英語のみで表示
+                plt.rcParams['font.family'] = 'DejaVu Sans'
+                logger.warning("No Japanese font found, using English only")
+                
+        except Exception as e:
+            logger.error(f"Error setting up Japanese font: {str(e)}")
+            plt.rcParams['font.family'] = 'DejaVu Sans'
     
     def save_graph_to_file(self, graph_data: str, filename: str) -> str:
         """グラフをファイルに保存"""
