@@ -59,6 +59,9 @@ class LineService:
             # シンプルな結論メッセージ
             conclusion_message = self._create_simple_conclusion_message(bill_data, recommended_plan, comparison_result)
             
+            # 詳細分析メッセージ（テキスト）
+            detailed_analysis = self._create_detailed_analysis_message(bill_data, recommended_plan, comparison_result, analysis_data)
+            
             # メイン結果のFlex Message
             main_result = self._create_enhanced_main_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
@@ -66,7 +69,7 @@ class LineService:
             detail_result = self._create_enhanced_detail_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
             # メッセージを送信
-            self.line_bot_api.reply_message(reply_token, [conclusion_message, main_result, detail_result])
+            self.line_bot_api.reply_message(reply_token, [conclusion_message, detailed_analysis, main_result, detail_result])
             
         except LineBotApiError as e:
             if "Invalid reply token" in str(e):
@@ -77,6 +80,91 @@ class LineService:
         except Exception as e:
             logger.error(f"Error sending analysis result: {str(e)}")
             self.send_error_message(reply_token)
+    
+    def _create_detailed_analysis_message(self, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None) -> TextSendMessage:
+        """詳細分析メッセージを作成"""
+        try:
+            # 基本情報
+            carrier = analysis_data.get('carrier', 'Unknown') if analysis_data else 'Unknown'
+            current_plan = analysis_data.get('current_plan', 'Unknown') if analysis_data else 'Unknown'
+            line_cost = bill_data.get('total_cost', 0)
+            terminal_cost = analysis_data.get('terminal_cost', 0) if analysis_data else 0
+            data_usage = analysis_data.get('data_usage', 0) if analysis_data else 0
+            call_usage = analysis_data.get('call_usage', 0) if analysis_data else 0
+            confidence = analysis_data.get('confidence', 0.0) if analysis_data else 0.0
+            
+            # キャリア名の日本語化
+            carrier_jp = self._get_carrier_japanese_name(carrier)
+            
+            # 詳細分析テキストの構築
+            analysis_parts = []
+            analysis_parts.append("📊 **詳細分析結果**")
+            analysis_parts.append("=" * 25)
+            
+            # 現在の状況詳細
+            analysis_parts.append(f"\n📋 **現在の契約詳細**")
+            analysis_parts.append(f"キャリア: {carrier_jp}")
+            if current_plan != 'Unknown':
+                analysis_parts.append(f"プラン名: {current_plan}")
+            analysis_parts.append(f"月額回線料金: ¥{line_cost:,}")
+            if terminal_cost > 0:
+                analysis_parts.append(f"端末代金: ¥{terminal_cost:,}")
+            
+            # 使用量分析
+            if data_usage > 0 or call_usage > 0:
+                analysis_parts.append(f"\n📈 **使用量分析**")
+                if data_usage > 0:
+                    analysis_parts.append(f"データ使用量: {data_usage:.1f}GB")
+                if call_usage > 0:
+                    analysis_parts.append(f"通話時間: {call_usage}分")
+            
+            # 推奨プラン詳細
+            analysis_parts.append(f"\n🎯 **dモバイル推奨プラン**")
+            analysis_parts.append(f"プラン名: {recommended_plan['name']}")
+            analysis_parts.append(f"月額料金: ¥{recommended_plan['monthly_cost']:,}")
+            if 'data_limit' in recommended_plan:
+                analysis_parts.append(f"データ容量: {recommended_plan['data_limit']}")
+            if 'call_option' in recommended_plan:
+                analysis_parts.append(f"通話オプション: {recommended_plan['call_option']}")
+            
+            # 節約効果詳細
+            monthly_saving = comparison_result.get('monthly_saving', 0)
+            if monthly_saving > 0:
+                analysis_parts.append(f"\n💰 **節約効果詳細**")
+                analysis_parts.append(f"月額節約: ¥{monthly_saving:,}")
+                analysis_parts.append(f"年間節約: ¥{monthly_saving * 12:,}")
+                analysis_parts.append(f"10年累積: ¥{monthly_saving * 12 * 10:,}")
+                analysis_parts.append(f"50年累積: ¥{monthly_saving * 12 * 50:,}")
+            
+            # 解析信頼度
+            analysis_parts.append(f"\n🎯 **解析信頼度**")
+            if confidence >= 0.8:
+                analysis_parts.append(f"信頼度: {confidence:.1%} (高)")
+            elif confidence >= 0.6:
+                analysis_parts.append(f"信頼度: {confidence:.1%} (中)")
+            else:
+                analysis_parts.append(f"信頼度: {confidence:.1%} (低)")
+            
+            return TextSendMessage(text="\n".join(analysis_parts))
+            
+        except Exception as e:
+            logger.error(f"Error creating detailed analysis message: {str(e)}")
+            return TextSendMessage(text="詳細分析の生成中にエラーが発生しました。")
+    
+    def _get_carrier_japanese_name(self, carrier: str) -> str:
+        """キャリア名を日本語に変換"""
+        carrier_names = {
+            'docomo': 'NTTドコモ',
+            'au': 'au (KDDI)',
+            'softbank': 'ソフトバンク',
+            'rakuten': '楽天モバイル',
+            'ymobile': 'ワイモバイル',
+            'uq': 'UQ mobile',
+            'ahamo': 'ahamo',
+            'povo': 'povo',
+            'linemo': 'LINEMO'
+        }
+        return carrier_names.get(carrier.lower(), carrier)
     
     def _create_main_result_flex(self, bill_data: dict, recommended_plan: dict, comparison_result: dict) -> FlexSendMessage:
         """メイン結果のFlex Messageを作成"""

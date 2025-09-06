@@ -517,23 +517,68 @@ class AIDiagnosisService:
     def generate_simple_conclusion(self, analysis: Dict, recommended_plan: Dict, comparison: Dict) -> str:
         """シンプルで分かりやすい結論を生成"""
         try:
+            # 基本情報の取得
+            carrier = analysis.get('carrier', 'Unknown')
+            current_plan = analysis.get('current_plan', 'Unknown')
             current_cost = analysis['line_cost']
             recommended_cost = recommended_plan['monthly_cost']
             monthly_saving = current_cost - recommended_cost
             
-            if monthly_saving > 0:
-                conclusion = f"💰 月額¥{monthly_saving:,}節約できます！\n"
-                conclusion += f"現在: ¥{current_cost:,} → おすすめ: ¥{recommended_cost:,}\n"
-                conclusion += f"年間で¥{monthly_saving * 12:,}の節約になります。"
-            else:
-                conclusion = f"現在のプランが最適です。\n"
-                conclusion += f"現在: ¥{current_cost:,} → おすすめ: ¥{recommended_cost:,}"
+            # キャリア名の日本語化
+            carrier_jp = self._get_carrier_japanese_name(carrier)
             
-            return conclusion
+            conclusion_parts = []
+            
+            # ヘッダー
+            conclusion_parts.append("📱 **携帯料金診断結果**")
+            conclusion_parts.append("=" * 30)
+            
+            # 現在の状況
+            conclusion_parts.append(f"📋 **現在の状況**")
+            conclusion_parts.append(f"キャリア: {carrier_jp}")
+            if current_plan != 'Unknown':
+                conclusion_parts.append(f"プラン: {current_plan}")
+            conclusion_parts.append(f"月額料金: **¥{current_cost:,}**")
+            
+            # 推奨プラン
+            conclusion_parts.append(f"\n🎯 **dモバイル推奨プラン**")
+            conclusion_parts.append(f"プラン: {recommended_plan['name']}")
+            conclusion_parts.append(f"月額料金: **¥{recommended_cost:,}**")
+            
+            # 節約効果
+            if monthly_saving > 0:
+                conclusion_parts.append(f"\n💰 **節約効果**")
+                conclusion_parts.append(f"月額節約: **¥{monthly_saving:,}**")
+                conclusion_parts.append(f"年間節約: **¥{monthly_saving * 12:,}**")
+                conclusion_parts.append(f"50年累積: **¥{monthly_saving * 12 * 50:,}**")
+            else:
+                conclusion_parts.append(f"\n✅ **診断結果**")
+                conclusion_parts.append("現在のプランが最適です！")
+            
+            # 解析信頼度
+            confidence = analysis.get('confidence', 0.0)
+            conclusion_parts.append(f"\n🎯 解析信頼度: {confidence:.1%}")
+            
+            return "\n".join(conclusion_parts)
             
         except Exception as e:
             logger.error(f"Error generating conclusion: {str(e)}")
             return "分析結果の生成中にエラーが発生しました。"
+    
+    def _get_carrier_japanese_name(self, carrier: str) -> str:
+        """キャリア名を日本語に変換"""
+        carrier_names = {
+            'docomo': 'NTTドコモ',
+            'au': 'au (KDDI)',
+            'softbank': 'ソフトバンク',
+            'rakuten': '楽天モバイル',
+            'ymobile': 'ワイモバイル',
+            'uq': 'UQ mobile',
+            'ahamo': 'ahamo',
+            'povo': 'povo',
+            'linemo': 'LINEMO'
+        }
+        return carrier_names.get(carrier.lower(), carrier)
 
     def generate_loss_analysis(self, comparison: Dict) -> Dict:
         """損失分析の生成"""
