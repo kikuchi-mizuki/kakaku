@@ -58,6 +58,10 @@ class Config:
     AI_DIAGNOSIS_ENABLED = os.getenv('AI_DIAGNOSIS_ENABLED', 'true').lower() == 'true'
     AI_CONFIDENCE_THRESHOLD = float(os.getenv('AI_CONFIDENCE_THRESHOLD', '0.7'))
     
+    # OpenAI API設定（オプション）
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    USE_OPENAI_ANALYSIS = os.getenv('USE_OPENAI_ANALYSIS', 'false').lower() == 'true'
+    
     # プラン選定設定
     EXCLUDE_S_PLAN = os.getenv('EXCLUDE_S_PLAN', 'true').lower() == 'true'
     ENABLE_24H_UNLIMITED = os.getenv('ENABLE_24H_UNLIMITED', 'true').lower() == 'true'
