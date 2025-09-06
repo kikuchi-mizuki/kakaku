@@ -69,9 +69,9 @@ ENABLE_FILE_LOGGING=true
 AI_DIAGNOSIS_ENABLED=true
 AI_CONFIDENCE_THRESHOLD=0.7
 
-# OpenAI API設定（オプション）
-# OPENAI_API_KEY=your_openai_api_key_here
-# USE_OPENAI_ANALYSIS=false
+# OpenAI API設定（推奨）
+OPENAI_API_KEY=your_openai_api_key_here
+USE_OPENAI_ANALYSIS=true
 
 # プラン選定設定
 EXCLUDE_S_PLAN=true
@@ -109,9 +109,15 @@ DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
 - `AI_DIAGNOSIS_ENABLED`: AI診断機能の有効/無効 (true/false)
 - `AI_CONFIDENCE_THRESHOLD`: AI診断の信頼度閾値 (0.0-1.0)
 
-#### OpenAI API設定（オプション）
-- `OPENAI_API_KEY`: OpenAI APIキー（高度な分析が必要な場合のみ）
+#### OpenAI API設定（推奨）
+- `OPENAI_API_KEY`: OpenAI APIキー（高精度な分析のため推奨）
 - `USE_OPENAI_ANALYSIS`: OpenAI APIを使用するか (true/false)
+
+**OpenAI APIの取得方法:**
+1. [OpenAI Platform](https://platform.openai.com/)にアクセス
+2. アカウントを作成・ログイン
+3. API Keysセクションで新しいAPIキーを生成
+4. 生成されたキーを`OPENAI_API_KEY`に設定
 
 #### プラン選定設定
 - `EXCLUDE_S_PLAN`: Sプランを除外するか (true/false)

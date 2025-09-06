@@ -1,7 +1,9 @@
 import logging
 import re
+import json
 from typing import Dict, List, Optional
 from datetime import datetime
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +11,20 @@ class AIDiagnosisService:
     """AI診断サービス - 携帯料金の詳細分析と提案"""
     
     def __init__(self):
+        # OpenAI API設定
+        self.openai_client = None
+        self.use_openai = Config.USE_OPENAI_ANALYSIS and Config.OPENAI_API_KEY
+        
+        if self.use_openai:
+            try:
+                import openai
+                openai.api_key = Config.OPENAI_API_KEY
+                self.openai_client = openai
+                logger.info("OpenAI API initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI API: {str(e)}")
+                self.use_openai = False
+        
         self.carrier_patterns = {
             'docomo': ['ドコモ', 'NTTドコモ', 'docomo', 'DOCOMO'],
             'au': ['au', 'KDDI', 'au by KDDI'],
@@ -34,10 +50,140 @@ class AIDiagnosisService:
         ]
 
     def analyze_bill_with_ai(self, ocr_text: str) -> Dict:
-        """AI診断による請求書分析"""
+        """AI診断による請求書分析（OpenAI API統合）"""
         try:
             logger.info("Starting AI diagnosis of bill")
             
+            # OpenAI APIを使用する場合
+            if self.use_openai:
+                analysis_result = self._analyze_with_openai(ocr_text)
+                if analysis_result and analysis_result.get('confidence', 0) > Config.AI_CONFIDENCE_THRESHOLD:
+                    logger.info("OpenAI analysis completed successfully")
+                    return analysis_result
+                else:
+                    logger.warning("OpenAI analysis failed or low confidence, falling back to rule-based analysis")
+            
+            # ルールベース分析（フォールバック）
+            analysis_result = self._analyze_with_rules(ocr_text)
+            
+            logger.info(f"AI diagnosis completed: {analysis_result['carrier']}, Line cost: ¥{analysis_result['line_cost']:,}")
+            
+            return analysis_result
+            
+        except Exception as e:
+            logger.error(f"Error in AI diagnosis: {str(e)}")
+            return {
+                'carrier': 'Unknown',
+                'current_plan': 'Unknown',
+                'line_cost': 0,
+                'terminal_cost': 0,
+                'total_cost': 0,
+                'data_usage': 0,
+                'call_usage': 0,
+                'confidence': 0.0,
+                'analysis_details': ['解析中にエラーが発生しました']
+            }
+    
+    def _analyze_with_openai(self, ocr_text: str) -> Dict:
+        """OpenAI APIを使った分析"""
+        try:
+            prompt = self._create_analysis_prompt(ocr_text)
+            
+            response = self.openai_client.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=1000
+            )
+            
+            result_text = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI response: {result_text}")
+            
+            # JSON形式の結果をパース
+            analysis_result = json.loads(result_text)
+            
+            # 結果の検証と補完
+            analysis_result = self._validate_openai_result(analysis_result)
+            
+            return analysis_result
+            
+        except Exception as e:
+            logger.error(f"Error in OpenAI analysis: {str(e)}")
+            return None
+    
+    def _create_analysis_prompt(self, ocr_text: str) -> str:
+        """OpenAI API用のプロンプトを作成"""
+        prompt = f"""
+以下の携帯料金明細の内容を分析してください：
+
+{ocr_text}
+
+以下の情報を抽出し、JSON形式で返してください：
+
+{{
+    "carrier": "キャリア名（docomo, au, softbank, rakuten, ymobile, uq, ahamo, povo, LINEMO のいずれか）",
+    "current_plan": "現在のプラン名",
+    "line_cost": 回線費用の数値（端末代金を除く）,
+    "terminal_cost": 端末代金の数値,
+    "total_cost": 合計金額の数値,
+    "data_usage": データ使用量の数値（GB）,
+    "call_usage": 通話時間の数値（分）,
+    "confidence": 分析の信頼度（0.0-1.0）,
+    "analysis_details": ["分析の詳細1", "分析の詳細2", ...]
+}}
+
+注意事項：
+- 回線費用は端末代金を除外してください
+- 金額は数値のみで返してください（カンマや円マークは不要）
+- 信頼度は分析の確実性を0.0-1.0で評価してください
+- 不明な項目は0または"Unknown"で返してください
+- JSON形式のみで返し、説明文は含めないでください
+"""
+        return prompt
+    
+    def _validate_openai_result(self, result: Dict) -> Dict:
+        """OpenAI APIの結果を検証・補完"""
+        try:
+            # 必須フィールドの確認
+            required_fields = ['carrier', 'current_plan', 'line_cost', 'terminal_cost', 'total_cost', 'data_usage', 'call_usage', 'confidence']
+            
+            for field in required_fields:
+                if field not in result:
+                    if field in ['line_cost', 'terminal_cost', 'total_cost', 'data_usage', 'call_usage', 'confidence']:
+                        result[field] = 0
+                    else:
+                        result[field] = 'Unknown'
+            
+            # 数値フィールドの型変換
+            numeric_fields = ['line_cost', 'terminal_cost', 'total_cost', 'data_usage', 'call_usage', 'confidence']
+            for field in numeric_fields:
+                if isinstance(result[field], str):
+                    try:
+                        result[field] = float(result[field])
+                    except ValueError:
+                        result[field] = 0
+            
+            # 回線費用の計算（端末代金を除外）
+            if result['total_cost'] > 0 and result['terminal_cost'] > 0:
+                result['line_cost'] = max(0, result['total_cost'] - result['terminal_cost'])
+            
+            # 分析詳細の生成
+            if 'analysis_details' not in result or not result['analysis_details']:
+                result['analysis_details'] = self._generate_analysis_details(result)
+            
+            logger.info(f"Validated OpenAI result: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error validating OpenAI result: {str(e)}")
+            return None
+    
+    def _analyze_with_rules(self, ocr_text: str) -> Dict:
+        """ルールベース分析（フォールバック）"""
+        try:
             # 基本情報の抽出
             analysis_result = {
                 'carrier': self._detect_carrier(ocr_text),
@@ -60,12 +206,10 @@ class AIDiagnosisService:
             # 分析詳細の生成
             analysis_result['analysis_details'] = self._generate_analysis_details(analysis_result)
             
-            logger.info(f"AI diagnosis completed: {analysis_result['carrier']}, Line cost: ¥{analysis_result['line_cost']:,}")
-            
             return analysis_result
             
         except Exception as e:
-            logger.error(f"Error in AI diagnosis: {str(e)}")
+            logger.error(f"Error in rule-based analysis: {str(e)}")
             return {
                 'carrier': 'Unknown',
                 'current_plan': 'Unknown',
