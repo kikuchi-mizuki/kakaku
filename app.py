@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, ImageMessage, FlexSendMessage
+from linebot.models import MessageEvent, TextMessage, ImageMessage, FlexSendMessage, TextSendMessage
 import logging
 import os
 from datetime import datetime
@@ -99,19 +99,20 @@ def handle_image_message(event):
         with open(image_path, 'wb') as f:
             f.write(image_data)
         
-        # 処理開始の応答
-        line_service.send_processing_message(event.reply_token)
-        
-        # 非同期で処理を実行
+        # 非同期で処理を実行（reply_tokenは処理完了後に使用）
         process_bill_async(event, image_path)
         
     except Exception as e:
         logger.error(f"Error handling image message: {str(e)}")
-        line_service.send_error_message(event.reply_token)
+        # reply_tokenが既に使用されている可能性があるため、エラーログのみ
+        logger.error("Could not send error message - reply token may be invalid")
 
 def process_bill_async(event, image_path):
     """請求書の非同期処理"""
     try:
+        # 処理開始の応答
+        line_service.send_processing_message(event.reply_token)
+        
         # OCR実行
         ocr_result = ocr_service.extract_text(image_path)
         
@@ -127,22 +128,46 @@ def process_bill_async(event, image_path):
             recommended_plan=recommended_plan
         )
         
-        # 結果をLINEで送信
-        line_service.send_analysis_result(
-            event.reply_token,
-            bill_data,
-            recommended_plan,
-            comparison_result
-        )
+        # 結果をLINEで送信（プッシュメッセージとして送信）
+        send_push_message(event.source.user_id, bill_data, recommended_plan, comparison_result)
         
     except Exception as e:
         logger.error(f"Error processing bill: {str(e)}")
-        line_service.send_error_message(event.reply_token)
+        # プッシュメッセージでエラーを送信
+        send_push_error_message(event.source.user_id)
     
     finally:
         # 一時ファイルを削除
         if os.path.exists(image_path):
             os.remove(image_path)
+
+def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, comparison_result: dict):
+    """プッシュメッセージで解析結果を送信"""
+    try:
+        if line_bot_api:
+            # メイン結果のFlex Message
+            main_result = line_service._create_main_result_flex(bill_data, recommended_plan, comparison_result)
+            
+            # 詳細結果のFlex Message
+            detail_result = line_service._create_detail_result_flex(bill_data, recommended_plan, comparison_result)
+            
+            # プッシュメッセージを送信
+            line_bot_api.push_message(user_id, [main_result, detail_result])
+            logger.info(f"Push message sent to user: {user_id}")
+    except Exception as e:
+        logger.error(f"Error sending push message: {str(e)}")
+
+def send_push_error_message(user_id: str):
+    """プッシュメッセージでエラーを送信"""
+    try:
+        if line_bot_api:
+            message = TextSendMessage(
+                text="❌ 申し訳ございません。\n\n明細の解析中にエラーが発生しました。\n\nもう一度画像を送信するか、ヘルプと送信してください。"
+            )
+            line_bot_api.push_message(user_id, message)
+            logger.info(f"Push error message sent to user: {user_id}")
+    except Exception as e:
+        logger.error(f"Error sending push error message: {str(e)}")
 
 def handle_text_message(event):
     """テキストメッセージの処理"""

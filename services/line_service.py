@@ -1,5 +1,6 @@
 from linebot import LineBotApi
 from linebot.models import TextSendMessage, FlexSendMessage, BubbleContainer, BoxComponent, TextComponent, ButtonComponent, URIAction
+from linebot.exceptions import LineBotApiError
 from config import Config
 import logging
 
@@ -14,22 +15,43 @@ class LineService:
         try:
             message = TextSendMessage(text=text)
             self.line_bot_api.reply_message(reply_token, message)
+        except LineBotApiError as e:
+            if "Invalid reply token" in str(e):
+                logger.warning("Invalid reply token - message may have already been sent")
+            else:
+                logger.error(f"LINE Bot API error: {str(e)}")
         except Exception as e:
             logger.error(f"Error sending text message: {str(e)}")
     
     def send_processing_message(self, reply_token: str):
         """処理中メッセージを送信"""
-        message = TextSendMessage(
-            text="📱 携帯料金明細を解析中です...\n\nしばらくお待ちください。"
-        )
-        self.line_bot_api.reply_message(reply_token, message)
+        try:
+            message = TextSendMessage(
+                text="📱 携帯料金明細を解析中です...\n\nしばらくお待ちください。"
+            )
+            self.line_bot_api.reply_message(reply_token, message)
+        except LineBotApiError as e:
+            if "Invalid reply token" in str(e):
+                logger.warning("Invalid reply token - processing message may have already been sent")
+            else:
+                logger.error(f"LINE Bot API error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error sending processing message: {str(e)}")
     
     def send_error_message(self, reply_token: str):
         """エラーメッセージを送信"""
-        message = TextSendMessage(
-            text="❌ 申し訳ございません。\n\n明細の解析中にエラーが発生しました。\n\nもう一度画像を送信するか、ヘルプと送信してください。"
-        )
-        self.line_bot_api.reply_message(reply_token, message)
+        try:
+            message = TextSendMessage(
+                text="❌ 申し訳ございません。\n\n明細の解析中にエラーが発生しました。\n\nもう一度画像を送信するか、ヘルプと送信してください。"
+            )
+            self.line_bot_api.reply_message(reply_token, message)
+        except LineBotApiError as e:
+            if "Invalid reply token" in str(e):
+                logger.warning("Invalid reply token - error message may have already been sent")
+            else:
+                logger.error(f"LINE Bot API error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error sending error message: {str(e)}")
     
     def send_analysis_result(self, reply_token: str, bill_data: dict, recommended_plan: dict, comparison_result: dict):
         """解析結果をFlex Messageで送信"""
@@ -43,6 +65,12 @@ class LineService:
             # メッセージを送信
             self.line_bot_api.reply_message(reply_token, [main_result, detail_result])
             
+        except LineBotApiError as e:
+            if "Invalid reply token" in str(e):
+                logger.warning("Invalid reply token - analysis result may have already been sent")
+            else:
+                logger.error(f"LINE Bot API error: {str(e)}")
+                self.send_error_message(reply_token)
         except Exception as e:
             logger.error(f"Error sending analysis result: {str(e)}")
             self.send_error_message(reply_token)
