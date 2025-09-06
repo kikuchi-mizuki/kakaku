@@ -20,9 +20,27 @@ app.config.from_object(Config)
 # ログ設定
 logger = setup_logger(__name__)
 
-# LINE Bot API
-line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
+# 設定の検証
+config_valid = False
+try:
+    config_valid = Config.validate_required_config()
+    if config_valid:
+        logger.info("Configuration validation passed")
+    else:
+        logger.warning("Configuration validation failed - running in development mode")
+except ValueError as e:
+    logger.error(f"Configuration error: {str(e)}")
+    raise
+
+# LINE Bot API（設定が有効な場合のみ初期化）
+if config_valid and Config.LINE_CHANNEL_ACCESS_TOKEN and Config.LINE_CHANNEL_SECRET:
+    line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
+    handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
+else:
+    # 開発環境用のダミー初期化
+    line_bot_api = None
+    handler = None
+    logger.warning("LINE Bot API not initialized - missing configuration")
 
 # サービス初期化
 line_service = LineService(line_bot_api)
@@ -41,6 +59,10 @@ def health_check():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    if not handler:
+        logger.error("LINE Bot handler not initialized - check configuration")
+        return jsonify({'error': 'Bot not configured'}), 500
+    
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     
@@ -52,9 +74,12 @@ def webhook():
     
     return jsonify({'status': 'OK'})
 
-@handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event):
     """画像メッセージの処理"""
+    if not line_bot_api:
+        logger.error("LINE Bot API not initialized - cannot process image")
+        return
+    
     try:
         logger.info(f"Received image message from user: {event.source.user_id}")
         
@@ -114,9 +139,12 @@ def process_bill_async(event, image_path):
         if os.path.exists(image_path):
             os.remove(image_path)
 
-@handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
     """テキストメッセージの処理"""
+    if not line_service:
+        logger.error("LINE service not initialized - cannot process text message")
+        return
+    
     text = event.message.text
     
     if text == "ヘルプ" or text == "help":
@@ -142,6 +170,11 @@ def handle_text_message(event):
             event.reply_token,
             "画像を送信して携帯料金を診断してください。ヘルプが欲しい場合は「ヘルプ」と送信してください。"
         )
+
+# ハンドラーの登録（設定が有効な場合のみ）
+if handler:
+    handler.add(MessageEvent, message=ImageMessage)(handle_image_message)
+    handler.add(MessageEvent, message=TextMessage)(handle_text_message)
 
 if __name__ == '__main__':
     # アップロードフォルダを作成

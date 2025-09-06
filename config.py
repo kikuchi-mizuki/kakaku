@@ -8,6 +8,33 @@ class Config:
     LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
     LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET')
     
+    @classmethod
+    def validate_required_config(cls):
+        """必須設定の検証"""
+        # 開発環境では警告のみ、本番環境ではエラー
+        is_development = cls.FLASK_ENV == 'development'
+        
+        required_vars = {
+            'LINE_CHANNEL_ACCESS_TOKEN': cls.LINE_CHANNEL_ACCESS_TOKEN,
+            'LINE_CHANNEL_SECRET': cls.LINE_CHANNEL_SECRET,
+        }
+        
+        missing_vars = []
+        for var_name, var_value in required_vars.items():
+            if not var_value:
+                missing_vars.append(var_name)
+        
+        if missing_vars:
+            error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+            if is_development:
+                print(f"WARNING: {error_msg}")
+                print("Please set these variables in your .env file")
+                return False
+            else:
+                raise ValueError(error_msg)
+        
+        return True
+    
     # Google Cloud Vision API
     GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
     
