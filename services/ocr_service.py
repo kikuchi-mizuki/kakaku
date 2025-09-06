@@ -182,6 +182,13 @@ class OCRService:
     def _setup_tesseract_path(self):
         """Tesseractのパス設定（環境に応じて自動検出）"""
         try:
+            # 環境変数でTesseractパスが設定されている場合
+            tesseract_cmd = os.getenv('TESSERACT_CMD')
+            if tesseract_cmd:
+                pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+                logger.info(f"Tesseract path set from environment: {tesseract_cmd}")
+                return
+            
             # 一般的なTesseractのパス候補
             possible_paths = [
                 '/usr/bin/tesseract',
@@ -307,10 +314,70 @@ class OCRService:
             
         except Exception as e:
             logger.error(f"Error with Tesseract: {str(e)}")
+            # フォールバック: 基本的なテキスト抽出を試行
+            return self._extract_with_fallback(image_path, str(e))
+    
+    def _extract_with_fallback(self, image_path: str, error_message: str) -> Dict:
+        """フォールバックOCR（Tesseractが利用できない場合）"""
+        try:
+            logger.info("Attempting fallback OCR extraction")
+            
+            # 画像の基本情報を取得
+            from PIL import Image
+            image = Image.open(image_path)
+            
+            # 画像のメタデータから可能な情報を抽出
+            fallback_text = self._extract_from_metadata(image)
+            
+            if fallback_text:
+                return {
+                    'text': fallback_text,
+                    'confidence': 0.3,  # 低い信頼度
+                    'blocks': [{'text': fallback_text, 'confidence': 0.3}],
+                    'method': 'fallback',
+                    'error': error_message
+                }
+            else:
+                # 完全にフォールバックできない場合
+                return {
+                    'text': '画像の解析に失敗しました。Tesseractがインストールされていないか、設定が正しくありません。',
+                    'confidence': 0.0,
+                    'blocks': [],
+                    'method': 'fallback',
+                    'error': error_message
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in fallback OCR: {str(e)}")
             return {
-                'text': '',
+                'text': '画像の解析に失敗しました。',
                 'confidence': 0.0,
                 'blocks': [],
-                'method': 'tesseract',
+                'method': 'fallback',
                 'error': str(e)
             }
+    
+    def _extract_from_metadata(self, image: Image.Image) -> str:
+        """画像のメタデータから可能な情報を抽出"""
+        try:
+            metadata_parts = []
+            
+            # 画像の基本情報
+            width, height = image.size
+            metadata_parts.append(f"画像サイズ: {width}x{height}")
+            
+            # EXIF情報があれば抽出
+            if hasattr(image, '_getexif') and image._getexif():
+                exif = image._getexif()
+                if exif:
+                    metadata_parts.append("EXIF情報が検出されました")
+            
+            # 画像の形式
+            if hasattr(image, 'format'):
+                metadata_parts.append(f"画像形式: {image.format}")
+            
+            return "\n".join(metadata_parts) if metadata_parts else ""
+            
+        except Exception as e:
+            logger.error(f"Error extracting metadata: {str(e)}")
+            return ""

@@ -18,10 +18,12 @@ class AIDiagnosisService:
         if self.use_openai:
             try:
                 from openai import OpenAI
+                # OpenAI APIの初期化（シンプルな設定）
                 self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 logger.info("OpenAI API initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
+                logger.info("Falling back to rule-based analysis only")
                 self.use_openai = False
         
         self.carrier_patterns = {

@@ -65,6 +65,9 @@ SECRET_KEY=your_secret_key
 LOG_LEVEL=INFO
 ENABLE_FILE_LOGGING=true
 
+# Tesseract設定（オプション）
+# TESSERACT_CMD=/usr/bin/tesseract
+
 # AI診断設定
 AI_DIAGNOSIS_ENABLED=true
 AI_CONFIDENCE_THRESHOLD=0.7
@@ -130,6 +133,15 @@ DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
 #### ログ設定
 - `ENABLE_FILE_LOGGING`: ファイルログを有効にするか (true/false)
 - `LOG_LEVEL`: ログレベル (DEBUG/INFO/WARNING/ERROR)
+
+#### Tesseract設定（オプション）
+- `TESSERACT_CMD`: Tesseractの実行ファイルパス（自動検出できない場合のみ設定）
+
+**Tesseractのインストール方法:**
+- **Ubuntu/Debian**: `sudo apt-get install tesseract-ocr tesseract-ocr-jpn`
+- **CentOS/RHEL**: `sudo yum install tesseract tesseract-langpack-jpn`
+- **macOS**: `brew install tesseract tesseract-lang`
+- **Windows**: [Tesseract公式サイト](https://github.com/UB-Mannheim/tesseract/wiki)からダウンロード
 
 ## 実行方法
 
