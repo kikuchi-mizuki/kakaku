@@ -74,6 +74,11 @@ def webhook():
     
     return jsonify({'status': 'OK'})
 
+@app.route('/callback', methods=['POST'])
+def callback():
+    """LINE Developers Console用のcallbackエンドポイント（/webhookと同じ処理）"""
+    return webhook()
+
 def handle_image_message(event):
     """画像メッセージの処理"""
     if not line_bot_api:
