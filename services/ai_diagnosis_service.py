@@ -1,6 +1,7 @@
 import logging
 import re
 import json
+import os
 from typing import Dict, List, Optional
 from datetime import datetime
 from config import Config
@@ -26,6 +27,14 @@ class AIDiagnosisService:
                 try:
                     from openai import OpenAI
                     logger.info("OpenAI library imported successfully")
+                    
+                    # ライブラリのバージョン確認
+                    try:
+                        import openai
+                        logger.info(f"OpenAI library version: {getattr(openai, '__version__', 'unknown')}")
+                    except Exception:
+                        logger.info("Could not determine OpenAI library version")
+                        
                 except ImportError as e:
                     logger.error(f"Failed to import OpenAI library: {str(e)}")
                     raise
@@ -35,9 +44,23 @@ class AIDiagnosisService:
                     logger.error("OpenAI API key is invalid or too short")
                     raise ValueError("Invalid OpenAI API key")
                 
-                # OpenAI APIの初期化
-                self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                logger.info("OpenAI API initialized successfully")
+                # OpenAI APIの初期化（環境変数をクリアしてproxies問題を回避）
+                import os
+                # プロキシ関連の環境変数を一時的にクリア
+                proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
+                original_proxy_values = {}
+                for var in proxy_vars:
+                    if var in os.environ:
+                        original_proxy_values[var] = os.environ[var]
+                        del os.environ[var]
+                
+                try:
+                    self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                    logger.info("OpenAI API initialized successfully")
+                finally:
+                    # 環境変数を復元
+                    for var, value in original_proxy_values.items():
+                        os.environ[var] = value
                 
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
