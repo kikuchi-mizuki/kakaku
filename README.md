@@ -138,10 +138,40 @@ DMOBILE_ACQUIRE_URL=https://mypage.dmobile.jp/CJP249422
 - `TESSERACT_CMD`: Tesseractの実行ファイルパス（自動検出できない場合のみ設定）
 
 **Tesseractのインストール方法:**
-- **Ubuntu/Debian**: `sudo apt-get install tesseract-ocr tesseract-ocr-jpn`
-- **CentOS/RHEL**: `sudo yum install tesseract tesseract-langpack-jpn`
-- **macOS**: `brew install tesseract tesseract-lang`
-- **Windows**: [Tesseract公式サイト](https://github.com/UB-Mannheim/tesseract/wiki)からダウンロード
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install tesseract-ocr tesseract-ocr-jpn
+```
+
+**CentOS/RHEL:**
+```bash
+sudo yum install tesseract tesseract-langpack-jpn
+# または
+sudo dnf install tesseract tesseract-langpack-jpn
+```
+
+**macOS:**
+```bash
+brew install tesseract tesseract-lang
+```
+
+**Windows:**
+1. [Tesseract公式サイト](https://github.com/UB-Mannheim/tesseract/wiki)からダウンロード
+2. インストール後、環境変数PATHに追加
+3. 日本語言語パックもインストール
+
+**Docker環境:**
+```dockerfile
+RUN apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-jpn
+```
+
+**インストール確認:**
+```bash
+tesseract --version
+tesseract --list-langs
+```
 
 ## 実行方法
 

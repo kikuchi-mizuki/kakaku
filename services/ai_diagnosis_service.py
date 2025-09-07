@@ -18,11 +18,8 @@ class AIDiagnosisService:
         if self.use_openai:
             try:
                 from openai import OpenAI
-                # OpenAI APIの初期化（最小限の設定）
-                self.openai_client = OpenAI(
-                    api_key=Config.OPENAI_API_KEY,
-                    timeout=30.0
-                )
+                # OpenAI APIの初期化（最小限の設定、proxies引数を避ける）
+                self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 logger.info("OpenAI API initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
