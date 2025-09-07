@@ -746,8 +746,13 @@ except Exception as e:
             
             try:
                 # 分離されたプロセスで実行
+                logger.info(f"Running isolated process with script: {script_path}")
                 result = subprocess.run([sys.executable, script_path], 
                                       capture_output=True, text=True, timeout=30)
+                
+                logger.info(f"Isolated process stdout: {result.stdout}")
+                logger.info(f"Isolated process stderr: {result.stderr}")
+                logger.info(f"Isolated process return code: {result.returncode}")
                 
                 if result.returncode == 0 and "SUCCESS" in result.stdout:
                     logger.info("OpenAI API initialized successfully (isolated process)")
@@ -755,21 +760,23 @@ except Exception as e:
                     from openai import OpenAI
                     return OpenAI(api_key=api_key)
                 else:
-                    logger.error(f"Isolated initialization failed: {result.stderr}")
-                    raise Exception(f"Isolated process failed: {result.stderr}")
+                    error_msg = f"Return code: {result.returncode}, stdout: {result.stdout}, stderr: {result.stderr}"
+                    logger.error(f"Isolated initialization failed: {error_msg}")
+                    raise Exception(f"Isolated process failed: {error_msg}")
                     
             finally:
                 # 一時ファイルを削除
                 import os
                 try:
                     os.unlink(script_path)
-                except:
-                    pass
+                    logger.info(f"Cleaned up temporary script: {script_path}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup script: {cleanup_error}")
                     
         except Exception as e:
             logger.warning(f"Isolated initialization failed: {str(e)}")
             
-            # フォールバック: 古いAPI形式
+            # フォールバック1: 古いAPI形式
             try:
                 logger.info("Attempting legacy OpenAI API initialization")
                 import openai
@@ -777,8 +784,49 @@ except Exception as e:
                 logger.info("OpenAI API initialized successfully (legacy method)")
                 return openai
             except Exception as e2:
-                logger.error(f"Legacy initialization also failed: {str(e2)}")
-                raise e2
+                logger.warning(f"Legacy initialization failed: {str(e2)}")
+                
+                # フォールバック2: 環境変数を完全にクリアして再試行
+                try:
+                    logger.info("Attempting environment-clean initialization")
+                    import os
+                    
+                    # すべての環境変数をバックアップ
+                    env_backup = dict(os.environ)
+                    
+                    # 問題のある環境変数をクリア
+                    problematic_vars = [
+                        'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
+                        'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
+                        'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'SSL_CERT_FILE'
+                    ]
+                    
+                    for var in problematic_vars:
+                        if var in os.environ:
+                            del os.environ[var]
+                    
+                    # クリーンな環境で初期化
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
+                    logger.info("OpenAI API initialized successfully (environment-clean method)")
+                    
+                    # 環境変数を復元
+                    os.environ.clear()
+                    os.environ.update(env_backup)
+                    
+                    return client
+                    
+                except Exception as e3:
+                    logger.error(f"Environment-clean initialization also failed: {str(e3)}")
+                    
+                    # 環境変数を復元
+                    try:
+                        os.environ.clear()
+                        os.environ.update(env_backup)
+                    except:
+                        pass
+                    
+                    raise e3
     
     def _validate_environment(self):
         """環境変数の検証"""
