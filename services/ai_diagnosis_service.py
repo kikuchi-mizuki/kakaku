@@ -719,7 +719,7 @@ class AIDiagnosisService:
             import tempfile
             import json
             
-            # 一時的なPythonスクリプトを作成
+            # 一時的なPythonスクリプトを作成（バージョン対応）
             script_content = f'''
 import os
 import sys
@@ -731,9 +731,25 @@ for var in proxy_vars:
         del os.environ[var]
 
 try:
-    from openai import OpenAI
-    client = OpenAI(api_key="{api_key}")
-    print("SUCCESS: OpenAI initialized")
+    import openai
+    print(f"OpenAI version: {{getattr(openai, '__version__', 'unknown')}}")
+    
+    # バージョンに応じた初期化
+    if hasattr(openai, 'OpenAI'):
+        # v1.0+ の場合
+        try:
+            client = openai.OpenAI(api_key="{api_key}")
+            print("SUCCESS: OpenAI v1.0+ initialized")
+        except Exception as e1:
+            print(f"ERROR v1.0+: {{str(e1)}}")
+            # 古い方法を試行
+            openai.api_key = "{api_key}"
+            print("SUCCESS: OpenAI legacy method initialized")
+    else:
+        # v0.x の場合
+        openai.api_key = "{api_key}"
+        print("SUCCESS: OpenAI v0.x initialized")
+        
 except Exception as e:
     print(f"ERROR: {{str(e)}}")
     sys.exit(1)
@@ -756,9 +772,8 @@ except Exception as e:
                 
                 if result.returncode == 0 and "SUCCESS" in result.stdout:
                     logger.info("OpenAI API initialized successfully (isolated process)")
-                    # メインプロセスで初期化
-                    from openai import OpenAI
-                    return OpenAI(api_key=api_key)
+                    # メインプロセスで同様の方法で初期化
+                    return self._initialize_openai_with_version_check(api_key)
                 else:
                     error_msg = f"Return code: {result.returncode}, stdout: {result.stdout}, stderr: {result.stderr}"
                     logger.error(f"Isolated initialization failed: {error_msg}")
@@ -827,6 +842,36 @@ except Exception as e:
                         pass
                     
                     raise e3
+    
+    def _initialize_openai_with_version_check(self, api_key: str):
+        """バージョンチェック付きOpenAI初期化"""
+        try:
+            import openai
+            version = getattr(openai, '__version__', 'unknown')
+            logger.info(f"OpenAI version: {version}")
+            
+            # バージョンに応じた初期化
+            if hasattr(openai, 'OpenAI'):
+                # v1.0+ の場合
+                try:
+                    client = openai.OpenAI(api_key=api_key)
+                    logger.info("OpenAI v1.0+ initialized successfully")
+                    return client
+                except Exception as e1:
+                    logger.warning(f"OpenAI v1.0+ failed: {str(e1)}")
+                    # 古い方法を試行
+                    openai.api_key = api_key
+                    logger.info("OpenAI legacy method initialized successfully")
+                    return openai
+            else:
+                # v0.x の場合
+                openai.api_key = api_key
+                logger.info("OpenAI v0.x initialized successfully")
+                return openai
+                
+        except Exception as e:
+            logger.error(f"Version-specific initialization failed: {str(e)}")
+            raise e
     
     def _validate_environment(self):
         """環境変数の検証"""
