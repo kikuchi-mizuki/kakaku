@@ -45,13 +45,14 @@ class AIDiagnosisService:
                     raise ValueError("Invalid OpenAI API key")
                 
                 # OpenAI APIの初期化（完全に分離された環境で実行）
-                self.openai_client = self._initialize_openai_safely(Config.OPENAI_API_KEY)
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize OpenAI API: {str(e)}")
-                logger.error(f"Error type: {type(e).__name__}")
-                logger.info("Falling back to rule-based analysis only")
-                self.use_openai = False
+                                self.openai_client = self._initialize_openai_safely(Config.OPENAI_API_KEY)
+                                logger.info("OpenAI API initialization completed successfully")
+                                
+                            except Exception as e:
+                                logger.error(f"Failed to initialize OpenAI API: {str(e)}")
+                                logger.error(f"Error type: {type(e).__name__}")
+                                logger.info("Falling back to rule-based analysis only")
+                                self.use_openai = False
         
         self.carrier_patterns = {
             'docomo': ['ドコモ', 'NTTドコモ', 'docomo', 'DOCOMO'],
@@ -862,6 +863,17 @@ except Exception as e:
                     # 古い方法を試行
                     openai.api_key = api_key
                     logger.info("OpenAI legacy method initialized successfully")
+                    logger.info("Testing legacy method with a simple API call...")
+                    try:
+                        # 簡単なテスト呼び出し
+                        test_response = openai.ChatCompletion.create(
+                            model="gpt-3.5-turbo",
+                            messages=[{"role": "user", "content": "test"}],
+                            max_tokens=1
+                        )
+                        logger.info("Legacy method test successful")
+                    except Exception as test_e:
+                        logger.warning(f"Legacy method test failed: {str(test_e)}")
                     return openai
             else:
                 # v0.x の場合
