@@ -18,8 +18,11 @@ class AIDiagnosisService:
         if self.use_openai:
             try:
                 from openai import OpenAI
-                # OpenAI APIの初期化（シンプルな設定）
-                self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                # OpenAI APIの初期化（最小限の設定）
+                self.openai_client = OpenAI(
+                    api_key=Config.OPENAI_API_KEY,
+                    timeout=30.0
+                )
                 logger.info("OpenAI API initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
@@ -224,22 +227,47 @@ class AIDiagnosisService:
             }
 
     def _detect_carrier(self, text: str) -> str:
-        """キャリアの検出"""
+        """キャリアの検出（改善版）"""
         text_lower = text.lower()
         
+        # より詳細なパターンマッチング
         for carrier, patterns in self.carrier_patterns.items():
             for pattern in patterns:
                 if pattern.lower() in text_lower:
+                    logger.info(f"Carrier detected: {carrier} (pattern: {pattern})")
                     return carrier
         
+        # 追加のパターンマッチング
+        additional_patterns = {
+            'docomo': ['ntt', 'ドコモ', 'docomo'],
+            'au': ['kddi', 'au', 'エーユー'],
+            'softbank': ['softbank', 'ソフトバンク', 'sb'],
+            'rakuten': ['rakuten', '楽天', '楽天モバイル'],
+            'ymobile': ['ymobile', 'ワイモバイル', 'y!mobile']
+        }
+        
+        for carrier, patterns in additional_patterns.items():
+            for pattern in patterns:
+                if pattern.lower() in text_lower:
+                    logger.info(f"Carrier detected (additional): {carrier} (pattern: {pattern})")
+                    return carrier
+        
+        logger.warning(f"No carrier detected in text: {text[:100]}...")
         return 'Unknown'
 
     def _extract_current_plan(self, text: str) -> str:
-        """現在のプランの抽出"""
+        """現在のプランの抽出（改善版）"""
         # プラン名のパターンを検索
         plan_patterns = [
             r'プラン[：:]\s*([^\n\r]+)',
             r'料金プラン[：:]\s*([^\n\r]+)',
+            r'契約プラン[：:]\s*([^\n\r]+)',
+            r'サービスプラン[：:]\s*([^\n\r]+)',
+            r'プラン名[：:]\s*([^\n\r]+)',
+            r'([^\n\r]*プラン[^\n\r]*)',
+            r'([^\n\r]*データプラン[^\n\r]*)',
+            r'([^\n\r]*通話プラン[^\n\r]*)',
+            r'([^\n\r]*スマホプラン[^\n\r]*)',
             r'([A-Za-z0-9]+プラン)',
             r'([A-Za-z0-9]+コース)',
             r'([A-Za-z0-9]+パック)'
@@ -248,8 +276,30 @@ class AIDiagnosisService:
         for pattern in plan_patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(1).strip()
+                plan_name = match.group(1).strip()
+                if plan_name and plan_name != 'Unknown':
+                    logger.info(f"Plan detected: {plan_name}")
+                    return plan_name
         
+        # 追加の検索パターン
+        additional_patterns = [
+            r'([A-Za-z0-9]+プラン[0-9]+GB)',
+            r'([A-Za-z0-9]+プラン[0-9]+)',
+            r'(データ[0-9]+GB)',
+            r'(通話[0-9]+分)',
+            r'([0-9]+GBプラン)',
+            r'([0-9]+分プラン)'
+        ]
+        
+        for pattern in additional_patterns:
+            match = re.search(pattern, text)
+            if match:
+                plan_name = match.group(1).strip()
+                if plan_name:
+                    logger.info(f"Plan detected (additional): {plan_name}")
+                    return plan_name
+        
+        logger.warning(f"No plan detected in text: {text[:100]}...")
         return 'Unknown Plan'
 
     def _extract_line_cost(self, text: str) -> int:
@@ -462,26 +512,49 @@ class AIDiagnosisService:
         return 0
 
     def _calculate_confidence(self, analysis: Dict, text: str) -> float:
-        """分析の信頼度を計算"""
+        """分析の信頼度を計算（改善版）"""
         confidence = 0.0
         
         # キャリアが検出された場合
         if analysis['carrier'] != 'Unknown':
-            confidence += 0.3
+            confidence += 0.4
+            logger.info(f"Confidence +0.4 for carrier detection: {analysis['carrier']}")
         
         # 回線費用が検出された場合
         if analysis['line_cost'] > 0:
-            confidence += 0.4
+            confidence += 0.3
+            logger.info(f"Confidence +0.3 for line cost detection: ¥{analysis['line_cost']:,}")
         
         # プランが検出された場合
-        if analysis['current_plan'] != 'Unknown Plan':
+        if analysis['current_plan'] != 'Unknown Plan' and analysis['current_plan'] != 'Unknown':
             confidence += 0.2
+            logger.info(f"Confidence +0.2 for plan detection: {analysis['current_plan']}")
         
         # データ使用量が検出された場合
         if analysis['data_usage'] > 0:
-            confidence += 0.1
+            confidence += 0.05
+            logger.info(f"Confidence +0.05 for data usage detection: {analysis['data_usage']}GB")
         
-        return min(confidence, 1.0)
+        # 端末代金が検出された場合
+        if analysis.get('terminal_cost', 0) > 0:
+            confidence += 0.05
+            logger.info(f"Confidence +0.05 for terminal cost detection: ¥{analysis['terminal_cost']:,}")
+        
+        # テキストの長さによる調整
+        if len(text) > 100:
+            confidence += 0.1
+            logger.info("Confidence +0.1 for sufficient text length")
+        
+        # 数値の存在による調整
+        import re
+        numbers = re.findall(r'\d+', text)
+        if len(numbers) >= 3:
+            confidence += 0.1
+            logger.info(f"Confidence +0.1 for multiple numbers found: {len(numbers)}")
+        
+        final_confidence = min(confidence, 1.0)
+        logger.info(f"Final confidence: {final_confidence:.2f}")
+        return final_confidence
 
     def _generate_analysis_details(self, analysis: Dict) -> List[str]:
         """分析詳細の生成"""
