@@ -211,7 +211,8 @@ class AIDiagnosisService:
                 "max_tokens": 1000
             }
             # プロキシ環境変数の影響を避ける
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            # プロキシ環境変数の影響を避けるため proxies を明示的に空指定
+            resp = requests.post(url, headers=headers, json=payload, timeout=30, proxies={})
             if resp.status_code != 200:
                 logger.error(f"HTTP fallback failed: {resp.status_code} {resp.text}")
                 return None
