@@ -44,23 +44,49 @@ class AIDiagnosisService:
                     logger.error("OpenAI API key is invalid or too short")
                     raise ValueError("Invalid OpenAI API key")
                 
-                # OpenAI APIの初期化（環境変数をクリアしてproxies問題を回避）
-                import os
-                # プロキシ関連の環境変数を一時的にクリア
-                proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']
-                original_proxy_values = {}
-                for var in proxy_vars:
-                    if var in os.environ:
-                        original_proxy_values[var] = os.environ[var]
-                        del os.environ[var]
+                # OpenAI APIの初期化（複数の方法を試行）
+                self.openai_client = None
                 
+                # 方法1: 基本的な初期化
                 try:
                     self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                    logger.info("OpenAI API initialized successfully")
-                finally:
-                    # 環境変数を復元
-                    for var, value in original_proxy_values.items():
-                        os.environ[var] = value
+                    logger.info("OpenAI API initialized successfully (method 1)")
+                except Exception as e1:
+                    logger.warning(f"Method 1 failed: {str(e1)}")
+                    
+                    # 方法2: 環境変数をクリアして初期化
+                    try:
+                        import os
+                        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']
+                        original_values = {}
+                        
+                        for var in proxy_vars:
+                            if var in os.environ:
+                                original_values[var] = os.environ[var]
+                                del os.environ[var]
+                        
+                        self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
+                        logger.info("OpenAI API initialized successfully (method 2)")
+                        
+                        # 環境変数を復元
+                        for var, value in original_values.items():
+                            os.environ[var] = value
+                            
+                    except Exception as e2:
+                        logger.warning(f"Method 2 failed: {str(e2)}")
+                        
+                        # 方法3: 古いAPI形式を試行
+                        try:
+                            import openai
+                            openai.api_key = Config.OPENAI_API_KEY
+                            self.openai_client = openai
+                            logger.info("OpenAI API initialized successfully (method 3 - legacy)")
+                        except Exception as e3:
+                            logger.error(f"All methods failed. Method 3 error: {str(e3)}")
+                            raise e3
+                
+                if self.openai_client is None:
+                    raise Exception("All OpenAI initialization methods failed")
                 
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
@@ -149,15 +175,29 @@ class AIDiagnosisService:
         try:
             prompt = self._create_analysis_prompt(ocr_text)
             
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=1000
-            )
+            # 複数の初期化方法に対応
+            if hasattr(self.openai_client, 'chat'):
+                # 新しいAPI形式 (v1.0+)
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1000
+                )
+            else:
+                # 古いAPI形式 (v0.x)
+                response = self.openai_client.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=1000
+                )
             
             result_text = response.choices[0].message.content.strip()
             logger.info(f"OpenAI response: {result_text}")
