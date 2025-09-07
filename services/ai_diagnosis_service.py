@@ -11,18 +11,37 @@ class AIDiagnosisService:
     """AI診断サービス - 携帯料金の詳細分析と提案"""
     
     def __init__(self):
+        # 環境変数の検証
+        self._validate_environment()
+        
         # OpenAI API設定
         self.openai_client = None
         self.use_openai = Config.USE_OPENAI_ANALYSIS and Config.OPENAI_API_KEY
         
         if self.use_openai:
             try:
-                from openai import OpenAI
-                # OpenAI APIの初期化（最小限の設定、proxies引数を避ける）
+                logger.info(f"Attempting to initialize OpenAI API with key: {Config.OPENAI_API_KEY[:10]}...")
+                
+                # OpenAIライブラリのインポート
+                try:
+                    from openai import OpenAI
+                    logger.info("OpenAI library imported successfully")
+                except ImportError as e:
+                    logger.error(f"Failed to import OpenAI library: {str(e)}")
+                    raise
+                
+                # APIキーの検証
+                if not Config.OPENAI_API_KEY or len(Config.OPENAI_API_KEY) < 10:
+                    logger.error("OpenAI API key is invalid or too short")
+                    raise ValueError("Invalid OpenAI API key")
+                
+                # OpenAI APIの初期化
                 self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
                 logger.info("OpenAI API initialized successfully")
+                
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
+                logger.error(f"Error type: {type(e).__name__}")
                 logger.info("Falling back to rule-based analysis only")
                 self.use_openai = False
         
@@ -73,6 +92,21 @@ class AIDiagnosisService:
             
         except Exception as e:
             logger.error(f"Error in AI diagnosis: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            
+            # エラーの詳細情報を提供
+            error_details = [
+                '解析中にエラーが発生しました',
+                f'エラー種別: {type(e).__name__}',
+                f'エラー内容: {str(e)}',
+                '',
+                '【推奨対応】',
+                '1. 画像の鮮明度を確認してください',
+                '2. Tesseractのインストールを確認してください',
+                '3. Google Cloud Vision APIの設定を確認してください',
+                '4. OpenAI APIキーの設定を確認してください'
+            ]
+            
             return {
                 'carrier': 'Unknown',
                 'current_plan': 'Unknown',
@@ -82,7 +116,9 @@ class AIDiagnosisService:
                 'data_usage': 0,
                 'call_usage': 0,
                 'confidence': 0.0,
-                'analysis_details': ['解析中にエラーが発生しました']
+                'analysis_details': error_details,
+                'error': str(e),
+                'error_type': type(e).__name__
             }
     
     def _analyze_with_openai(self, ocr_text: str) -> Dict:
@@ -651,6 +687,38 @@ class AIDiagnosisService:
             'linemo': 'LINEMO'
         }
         return carrier_names.get(carrier.lower(), carrier)
+    
+    def _validate_environment(self):
+        """環境変数の検証"""
+        try:
+            logger.info("Validating environment variables...")
+            
+            # OpenAI API設定の検証
+            if Config.USE_OPENAI_ANALYSIS:
+                if not Config.OPENAI_API_KEY:
+                    logger.warning("USE_OPENAI_ANALYSIS is True but OPENAI_API_KEY is not set")
+                else:
+                    logger.info(f"OpenAI API key is set (length: {len(Config.OPENAI_API_KEY)})")
+            else:
+                logger.info("OpenAI analysis is disabled")
+            
+            # Google Cloud Vision API設定の検証
+            if Config.GOOGLE_APPLICATION_CREDENTIALS:
+                logger.info(f"Google Cloud Vision API credentials: {Config.GOOGLE_APPLICATION_CREDENTIALS}")
+            else:
+                logger.info("Google Cloud Vision API credentials not set")
+            
+            # Tesseract設定の検証
+            tesseract_cmd = os.getenv('TESSERACT_CMD')
+            if tesseract_cmd:
+                logger.info(f"Tesseract command: {tesseract_cmd}")
+            else:
+                logger.info("Tesseract command not set (will use auto-detection)")
+            
+            logger.info("Environment validation completed")
+            
+        except Exception as e:
+            logger.error(f"Error validating environment: {str(e)}")
 
     def generate_loss_analysis(self, comparison: Dict) -> Dict:
         """損失分析の生成"""
