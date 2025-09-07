@@ -44,49 +44,8 @@ class AIDiagnosisService:
                     logger.error("OpenAI API key is invalid or too short")
                     raise ValueError("Invalid OpenAI API key")
                 
-                # OpenAI APIの初期化（複数の方法を試行）
-                self.openai_client = None
-                
-                # 方法1: 基本的な初期化
-                try:
-                    self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                    logger.info("OpenAI API initialized successfully (method 1)")
-                except Exception as e1:
-                    logger.warning(f"Method 1 failed: {str(e1)}")
-                    
-                    # 方法2: 環境変数をクリアして初期化
-                    try:
-                        import os
-                        proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']
-                        original_values = {}
-                        
-                        for var in proxy_vars:
-                            if var in os.environ:
-                                original_values[var] = os.environ[var]
-                                del os.environ[var]
-                        
-                        self.openai_client = OpenAI(api_key=Config.OPENAI_API_KEY)
-                        logger.info("OpenAI API initialized successfully (method 2)")
-                        
-                        # 環境変数を復元
-                        for var, value in original_values.items():
-                            os.environ[var] = value
-                            
-                    except Exception as e2:
-                        logger.warning(f"Method 2 failed: {str(e2)}")
-                        
-                        # 方法3: 古いAPI形式を試行
-                        try:
-                            import openai
-                            openai.api_key = Config.OPENAI_API_KEY
-                            self.openai_client = openai
-                            logger.info("OpenAI API initialized successfully (method 3 - legacy)")
-                        except Exception as e3:
-                            logger.error(f"All methods failed. Method 3 error: {str(e3)}")
-                            raise e3
-                
-                if self.openai_client is None:
-                    raise Exception("All OpenAI initialization methods failed")
+                # OpenAI APIの初期化（完全に分離された環境で実行）
+                self.openai_client = self._initialize_openai_safely(Config.OPENAI_API_KEY)
                 
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI API: {str(e)}")
@@ -750,6 +709,76 @@ class AIDiagnosisService:
             'linemo': 'LINEMO'
         }
         return carrier_names.get(carrier.lower(), carrier)
+    
+    def _initialize_openai_safely(self, api_key: str):
+        """OpenAI APIを安全に初期化（環境変数の干渉を完全に回避）"""
+        try:
+            # 完全にクリーンな環境で初期化
+            import subprocess
+            import sys
+            import tempfile
+            import json
+            
+            # 一時的なPythonスクリプトを作成
+            script_content = f'''
+import os
+import sys
+
+# 環境変数をクリア
+proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']
+for var in proxy_vars:
+    if var in os.environ:
+        del os.environ[var]
+
+try:
+    from openai import OpenAI
+    client = OpenAI(api_key="{api_key}")
+    print("SUCCESS: OpenAI initialized")
+except Exception as e:
+    print(f"ERROR: {{str(e)}}")
+    sys.exit(1)
+'''
+            
+            # 一時ファイルにスクリプトを書き込み
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(script_content)
+                script_path = f.name
+            
+            try:
+                # 分離されたプロセスで実行
+                result = subprocess.run([sys.executable, script_path], 
+                                      capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0 and "SUCCESS" in result.stdout:
+                    logger.info("OpenAI API initialized successfully (isolated process)")
+                    # メインプロセスで初期化
+                    from openai import OpenAI
+                    return OpenAI(api_key=api_key)
+                else:
+                    logger.error(f"Isolated initialization failed: {result.stderr}")
+                    raise Exception(f"Isolated process failed: {result.stderr}")
+                    
+            finally:
+                # 一時ファイルを削除
+                import os
+                try:
+                    os.unlink(script_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.warning(f"Isolated initialization failed: {str(e)}")
+            
+            # フォールバック: 古いAPI形式
+            try:
+                logger.info("Attempting legacy OpenAI API initialization")
+                import openai
+                openai.api_key = api_key
+                logger.info("OpenAI API initialized successfully (legacy method)")
+                return openai
+            except Exception as e2:
+                logger.error(f"Legacy initialization also failed: {str(e2)}")
+                raise e2
     
     def _validate_environment(self):
         """環境変数の検証"""
