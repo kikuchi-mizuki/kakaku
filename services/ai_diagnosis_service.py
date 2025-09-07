@@ -5,6 +5,13 @@ import os
 from typing import Dict, List, Optional
 from datetime import datetime
 from config import Config
+try:
+    import requests  # HTTPフォールバック用
+except Exception:
+    requests = None
+from typing import Dict, List, Optional
+from datetime import datetime
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +142,9 @@ class AIDiagnosisService:
         try:
             prompt = self._create_analysis_prompt(ocr_text)
             
-            # 複数の初期化方法に対応
-            if hasattr(self.openai_client, 'chat'):
+            # 利用可能な呼び出し経路を順に試行
+            response = None
+            if self.openai_client is not None and hasattr(self.openai_client, 'chat'):
                 # 新しいAPI形式 (v1.0+)
                 response = self.openai_client.chat.completions.create(
                     model="gpt-3.5-turbo",
@@ -147,7 +155,7 @@ class AIDiagnosisService:
                     temperature=0.1,
                     max_tokens=1000
                 )
-            else:
+            elif self.openai_client is not None and hasattr(self.openai_client, 'ChatCompletion'):
                 # 古いAPI形式 (v0.x)
                 response = self.openai_client.ChatCompletion.create(
                     model="gpt-3.5-turbo",
@@ -158,6 +166,14 @@ class AIDiagnosisService:
                     temperature=0.1,
                     max_tokens=1000
                 )
+            else:
+                logger.info("Using HTTP fallback for OpenAI API")
+                result_text = self._analyze_with_openai_http(prompt)
+                if not result_text:
+                    return None
+                analysis_result = json.loads(result_text)
+                analysis_result = self._validate_openai_result(analysis_result)
+                return analysis_result
             
             result_text = response.choices[0].message.content.strip()
             logger.info(f"OpenAI response: {result_text}")
@@ -172,6 +188,37 @@ class AIDiagnosisService:
             
         except Exception as e:
             logger.error(f"Error in OpenAI analysis: {str(e)}")
+            return None
+
+    def _analyze_with_openai_http(self, prompt: str) -> Optional[str]:
+        """ライブラリ非依存のHTTPフォールバックでChat Completionsを呼び出す"""
+        try:
+            if requests is None:
+                logger.error("requests library is not available for HTTP fallback")
+                return None
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1000
+            }
+            # プロキシ環境変数の影響を避ける
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code != 200:
+                logger.error(f"HTTP fallback failed: {resp.status_code} {resp.text}")
+                return None
+            data = resp.json()
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.error(f"HTTP fallback exception: {str(e)}")
             return None
     
     def _create_analysis_prompt(self, ocr_text: str) -> str:
