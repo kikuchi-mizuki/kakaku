@@ -308,7 +308,14 @@ class OCRService:
             
         except Exception as e:
             logger.warning(f"Image preprocessing failed, using original image: {str(e)}")
-            return image
+            # 元の画像がPIL.Image.Imageかどうか確認
+            if isinstance(image, Image.Image):
+                return image
+            else:
+                logger.error(f"Original image is also invalid type: {type(image)}")
+                # エラー画像を作成
+                error_image = Image.new('RGB', (100, 100), color='white')
+                return error_image
     
     def _extract_text_with_multiple_configs(self, image: Image.Image) -> str:
         """複数の設定でOCRを実行し、最良の結果を返す（タイムアウト対策）"""
@@ -358,7 +365,12 @@ class OCRService:
         if not best_text:
             try:
                 logger.info("Using default OCR config as fallback")
-                best_text = pytesseract.image_to_string(image, lang='jpn+eng', timeout=15)
+                # 画像型を再確認
+                if isinstance(image, Image.Image):
+                    best_text = pytesseract.image_to_string(image, lang='jpn+eng', timeout=15)
+                else:
+                    logger.error(f"Image type invalid for fallback OCR: {type(image)}")
+                    best_text = ""
             except Exception as e:
                 logger.error(f"Default OCR config also failed: {str(e)}")
                 best_text = ""
@@ -454,6 +466,11 @@ class OCRService:
             
             # 画像前処理を改善
             processed_image = self._preprocess_image(image)
+            
+            # 画像前処理結果の型チェック
+            if not isinstance(processed_image, Image.Image):
+                logger.error(f"Image preprocessing returned invalid type: {type(processed_image)}")
+                processed_image = image  # 元の画像を使用
             
             # OCR実行（複数の設定で試行）
             text = self._extract_text_with_multiple_configs(processed_image)
