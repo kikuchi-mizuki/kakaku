@@ -49,124 +49,171 @@ class StructuredBillAnalyzer:
         """キャリア別語彙辞書を読み込み"""
         return {
             'softbank': {
-                # 日本語（実際の請求書項目）
-                'あんしん保証': BillCategory.OPTION,
-                'あんしん保証パック': BillCategory.OPTION,
-                'My SoftBank': BillCategory.OPTION,
-                '請求書発行手数料': BillCategory.FEE,
-                '基本プラン': BillCategory.BASE,
-                '基本料': BillCategory.BASE,
-                'データプラン': BillCategory.DATA,
-                'データ通信': BillCategory.DATA,
-                'データ通信料': BillCategory.DATA,
-                '通話料': BillCategory.VOICE,
-                '定額オプション': BillCategory.OPTION,
-                '月額料': BillCategory.OPTION,
-                '家族割': BillCategory.DISCOUNT,
-                'PayPayカード割': BillCategory.DISCOUNT,
-                '端末分割金': BillCategory.DEVICE,
-                '分割支払金': BillCategory.DEVICE,
-                '賦払金': BillCategory.DEVICE,
-                '端末代': BillCategory.DEVICE,
-                '付属品': BillCategory.DEVICE,
-                '消費税等': BillCategory.TAX,
+                # アンカー（最重要）
                 '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL,
                 '課税対象額': BillCategory.SUBTOTAL,
-                '課税対象外': BillCategory.SUBTOTAL,
-                # 英語
-                'Basic Plan': BillCategory.BASE,
-                'Data Usage': BillCategory.DATA,
-                'Voice Usage': BillCategory.VOICE,
-                'Device Payment': BillCategory.DEVICE,
-                'Tax': BillCategory.TAX,
-                'Subtotal': BillCategory.SUBTOTAL,
-                'Total': BillCategory.TOTAL,
-                'Summary of your charges': BillCategory.TOTAL,
-                'Billing': BillCategory.TOTAL
+                'subtotal': BillCategory.SUBTOTAL,
+                '消費税等': BillCategory.TAX,
+                '消費税': BillCategory.TAX,
+                'tax': BillCategory.TAX,
+                'ご請求金額': BillCategory.TOTAL,
+                'ご請求額': BillCategory.TOTAL,
+                '合計': BillCategory.TOTAL,
+                'total': BillCategory.TOTAL,
+                
+                # 除外（端末代金）
+                '分割支払金': BillCategory.DEVICE,
+                '分割金': BillCategory.DEVICE,
+                '割賦': BillCategory.DEVICE,
+                '端末': BillCategory.DEVICE,
+                'device': BillCategory.DEVICE,
+                
+                # 割引
+                '割引': BillCategory.DISCOUNT,
+                '▲': BillCategory.DISCOUNT,
+                'discount': BillCategory.DISCOUNT,
+                '家族割': BillCategory.DISCOUNT,
+                'おうち割': BillCategory.DISCOUNT,
+                
+                # その他（オプション・手数料・基本料・データ・通話をまとめる）
+                '請求書発行手数料': BillCategory.OPTION,
+                'あんしん保証': BillCategory.OPTION,
+                'AppleCare': BillCategory.OPTION,
+                'オプション': BillCategory.OPTION,
+                '基本料': BillCategory.OPTION,
+                'データ': BillCategory.OPTION,
+                '通話': BillCategory.OPTION,
+                'S!': BillCategory.OPTION,
+                'My SoftBank': BillCategory.OPTION,
+                'Y!mobile': BillCategory.OPTION,
+                'Wi-Fi': BillCategory.OPTION,
+                'メール': BillCategory.OPTION,
+                'SMS': BillCategory.OPTION,
             },
             'docomo': {
-                # 日本語
-                'spモード': BillCategory.OPTION,
-                'dカードお支払割': BillCategory.DISCOUNT,
-                '基本料金': BillCategory.BASE,
-                'データ通信料': BillCategory.DATA,
-                '通話料': BillCategory.VOICE,
-                '家族割引': BillCategory.DISCOUNT,
-                '端末代金': BillCategory.DEVICE,
-                '消費税等': BillCategory.TAX,
+                # アンカー（最重要）
                 '小計': BillCategory.SUBTOTAL,
+                '課税対象額': BillCategory.SUBTOTAL,
+                'subtotal': BillCategory.SUBTOTAL,
+                '消費税等': BillCategory.TAX,
+                '消費税': BillCategory.TAX,
+                'tax': BillCategory.TAX,
+                '合計請求額': BillCategory.TOTAL,
                 'ご請求金額': BillCategory.TOTAL,
-                # 英語
-                'Basic Plan': BillCategory.BASE,
-                'Data Usage': BillCategory.DATA,
-                'Voice Usage': BillCategory.VOICE,
-                'Device Payment': BillCategory.DEVICE,
-                'Tax': BillCategory.TAX,
-                'Subtotal': BillCategory.SUBTOTAL,
-                'Total': BillCategory.TOTAL
+                '請求金額': BillCategory.TOTAL,
+                '合計': BillCategory.TOTAL,
+                'total': BillCategory.TOTAL,
+                
+                # 除外（端末代金）
+                '分割支払金': BillCategory.DEVICE,
+                '分割金': BillCategory.DEVICE,
+                '端末': BillCategory.DEVICE,
+                '割賦': BillCategory.DEVICE,
+                'device': BillCategory.DEVICE,
+                
+                # 割引
+                '割引': BillCategory.DISCOUNT,
+                '▲': BillCategory.DISCOUNT,
+                'discount': BillCategory.DISCOUNT,
+                'dカードお支払割': BillCategory.DISCOUNT,
+                'みんなドコモ割': BillCategory.DISCOUNT,
+                
+                # その他（オプション・手数料・基本料・データ・通話をまとめる）
+                'spモード': BillCategory.OPTION,
+                'ギガホ': BillCategory.OPTION,
+                'ギガライト': BillCategory.OPTION,
+                '5Gギガホ': BillCategory.OPTION,
+                'オプション': BillCategory.OPTION,
+                '請求書発行手数料': BillCategory.OPTION,
+                '基本使用料': BillCategory.OPTION,
+                '基本料': BillCategory.OPTION,
+                'データ': BillCategory.OPTION,
+                '通話': BillCategory.OPTION,
+                'メール': BillCategory.OPTION,
+                'SMS': BillCategory.OPTION,
             },
             'au': {
-                # 日本語
+                # アンカー（最重要）
+                '小計': BillCategory.SUBTOTAL,
+                '課税対象額': BillCategory.SUBTOTAL,
+                'subtotal': BillCategory.SUBTOTAL,
+                '消費税等': BillCategory.TAX,
+                '消費税': BillCategory.TAX,
+                'tax': BillCategory.TAX,
+                'ご請求金額': BillCategory.TOTAL,
+                '請求金額': BillCategory.TOTAL,
+                '合計': BillCategory.TOTAL,
+                'total': BillCategory.TOTAL,
+                
+                # 除外（端末代金）
+                '分割支払金': BillCategory.DEVICE,
+                '分割金': BillCategory.DEVICE,
+                '割賦': BillCategory.DEVICE,
+                '端末': BillCategory.DEVICE,
+                'device': BillCategory.DEVICE,
+                
+                # 割引
+                '割引': BillCategory.DISCOUNT,
+                '▲': BillCategory.DISCOUNT,
+                'discount': BillCategory.DISCOUNT,
                 '家族割プラス': BillCategory.DISCOUNT,
                 'スマートバリュー': BillCategory.DISCOUNT,
-                '基本料金': BillCategory.BASE,
-                'データ通信料': BillCategory.DATA,
-                '通話料': BillCategory.VOICE,
-                '端末代金': BillCategory.DEVICE,
-                '消費税等': BillCategory.TAX,
-                '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL,
-                # 英語
-                'Basic Plan': BillCategory.BASE,
-                'Data Usage': BillCategory.DATA,
-                'Voice Usage': BillCategory.VOICE,
-                'Device Payment': BillCategory.DEVICE,
-                'Tax': BillCategory.TAX,
-                'Subtotal': BillCategory.SUBTOTAL,
-                'Total': BillCategory.TOTAL,
-                'Summary of your charges': BillCategory.TOTAL
-            },
-            'rakuten': {
-                # 日本語
-                '楽天モバイル': BillCategory.BASE,
-                'データ通信料': BillCategory.DATA,
-                '通話料': BillCategory.VOICE,
-                '端末代金': BillCategory.DEVICE,
-                '消費税等': BillCategory.TAX,
-                '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL,
-                # 英語
-                'Basic Plan': BillCategory.BASE,
-                'Data Usage': BillCategory.DATA,
-                'Voice Usage': BillCategory.VOICE,
-                'Device Payment': BillCategory.DEVICE,
-                'Tax': BillCategory.TAX,
-                'Subtotal': BillCategory.SUBTOTAL,
-                'Total': BillCategory.TOTAL
+                
+                # その他（オプション・手数料・基本料・データ・通話をまとめる）
+                'LTE NET': BillCategory.OPTION,
+                '使い放題MAX': BillCategory.OPTION,
+                'ピタット': BillCategory.OPTION,
+                '請求書発行手数料': BillCategory.OPTION,
+                'AppleCare': BillCategory.OPTION,
+                'オプション': BillCategory.OPTION,
+                '基本料': BillCategory.OPTION,
+                'データ': BillCategory.OPTION,
+                '通話': BillCategory.OPTION,
+                'メール': BillCategory.OPTION,
+                'SMS': BillCategory.OPTION,
             },
             'generic': {
-                # 汎用英語パターン
-                'Basic Plan': BillCategory.BASE,
-                'Base Plan': BillCategory.BASE,
-                'Monthly Plan': BillCategory.BASE,
-                'Data Usage': BillCategory.DATA,
-                'Data Charge': BillCategory.DATA,
-                'Voice Usage': BillCategory.VOICE,
-                'Voice Charge': BillCategory.VOICE,
-                'Call Charge': BillCategory.VOICE,
-                'Device Payment': BillCategory.DEVICE,
-                'Device Fee': BillCategory.DEVICE,
-                'Installment': BillCategory.DEVICE,
-                'Tax': BillCategory.TAX,
-                'VAT': BillCategory.TAX,
-                'Subtotal': BillCategory.SUBTOTAL,
-                'Total': BillCategory.TOTAL,
-                'Amount': BillCategory.TOTAL,
-                'Bill': BillCategory.TOTAL,
-                'Charge': BillCategory.TOTAL,
-                'Summary of your charges': BillCategory.TOTAL,
-                'Billing': BillCategory.TOTAL
+                # アンカー（最重要）
+                '小計': BillCategory.SUBTOTAL,
+                '課税対象額': BillCategory.SUBTOTAL,
+                'subtotal': BillCategory.SUBTOTAL,
+                '消費税等': BillCategory.TAX,
+                '消費税': BillCategory.TAX,
+                'tax': BillCategory.TAX,
+                'ご請求金額': BillCategory.TOTAL,
+                '合計': BillCategory.TOTAL,
+                'total': BillCategory.TOTAL,
+                'billing': BillCategory.TOTAL,
+                'summary of your charges': BillCategory.TOTAL,
+                
+                # 除外（端末代金）
+                '分割支払金': BillCategory.DEVICE,
+                '分割金': BillCategory.DEVICE,
+                '端末': BillCategory.DEVICE,
+                '割賦': BillCategory.DEVICE,
+                'device': BillCategory.DEVICE,
+                'installment': BillCategory.DEVICE,
+                
+                # 割引
+                '割引': BillCategory.DISCOUNT,
+                '▲': BillCategory.DISCOUNT,
+                'discount': BillCategory.DISCOUNT,
+                'rebate': BillCategory.DISCOUNT,
+                
+                # その他（オプション・手数料・基本料・データ・通話をまとめる）
+                'オプション': BillCategory.OPTION,
+                'サービス': BillCategory.OPTION,
+                '請求書発行手数料': BillCategory.OPTION,
+                '手数料': BillCategory.OPTION,
+                '基本料': BillCategory.OPTION,
+                'データ': BillCategory.OPTION,
+                '通話': BillCategory.OPTION,
+                'メール': BillCategory.OPTION,
+                'SMS': BillCategory.OPTION,
+                'option': BillCategory.OPTION,
+                'service': BillCategory.OPTION,
+                'fee': BillCategory.OPTION,
+                'charge': BillCategory.OPTION,
             }
         }
     
@@ -241,26 +288,47 @@ class StructuredBillAnalyzer:
             return self._fallback_analysis(ocr_text)
     
     def _detect_carrier_from_text(self, text: str) -> str:
-        """テキストからキャリアを検出"""
+        """OCRテキストからキャリアを自動検出（スコアベース）"""
         text_lower = text.lower()
         
-        # キャリア検出パターン
-        carrier_patterns = {
-            'softbank': ['softbank', 'ソフトバンク', 'sb'],
-            'docomo': ['docomo', 'ドコモ', 'ntt'],
-            'au': ['au', 'エーユー', 'kddi'],
-            'rakuten': ['rakuten', '楽天', '楽天モバイル']
-        }
+        # キャリアスコアを初期化
+        scores = {'softbank': 0, 'au': 0, 'docomo': 0}
         
-        for carrier, patterns in carrier_patterns.items():
-            for pattern in patterns:
-                if pattern in text_lower:
-                    logger.info(f"キャリア検出: {carrier} (パターン: {pattern})")
-                    return carrier
+        # 主要キーワード（高スコア）
+        if re.search(r'my\s*softbank|ソフトバンク|softbank', text, re.I):
+            scores['softbank'] += 3
+        if re.search(r'my\s*au|au|kddi', text, re.I):
+            scores['au'] += 3
+        if re.search(r'docomo|ドコモ|my\s*docomo', text, re.I):
+            scores['docomo'] += 3
         
-        # デフォルトは汎用辞書を使用
-        logger.info("キャリア検出失敗、汎用辞書を使用")
-        return 'generic'
+        # 予備キーワード（中スコア）
+        if re.search(r'おうち割|s!|y!mobile|あんしん保証', text, re.I):
+            scores['softbank'] += 2
+        if re.search(r'スマートバリュー|家族割プラス|ピタット|使い放題max', text, re.I):
+            scores['au'] += 2
+        if re.search(r'spモード|dカード|ギガホ|ギガライト', text, re.I):
+            scores['docomo'] += 2
+        
+        # 軽微なキーワード（低スコア）
+        if re.search(r'paypay|wi-fi|メール', text, re.I):
+            scores['softbank'] += 1
+        if re.search(r'lte\s*net|applecare', text, re.I):
+            scores['au'] += 1
+        if re.search(r'5g|みんなドコモ', text, re.I):
+            scores['docomo'] += 1
+        
+        # 最高スコアのキャリアを返す
+        max_score = max(scores.values())
+        if max_score > 0:
+            detected_carrier = max(scores, key=scores.get)
+            print(f"キャリア検出: {detected_carrier} (スコア: {max_score})")
+            logger.info(f"キャリア検出: {detected_carrier} (スコア: {max_score})")
+            return detected_carrier
+        else:
+            print("キャリア検出: generic (スコア不足)")
+            logger.info("キャリア検出: generic (スコア不足)")
+            return 'generic'
     
     def _split_into_lines(self, text: str) -> List[str]:
         """OCRテキストを行ごとに分割"""
@@ -435,15 +503,47 @@ class StructuredBillAnalyzer:
         return bill_lines
     
     def _fuzzy_classify(self, label: str, carrier: str) -> Optional[Dict]:
-        """文字化け対応のファジーマッチング"""
+        """rapidfuzzを使ったファジーマッチング"""
+        try:
+            from rapidfuzz import process, fuzz
+            
+            if carrier not in self.carrier_dictionaries:
+                return None
+            
+            dictionary = self.carrier_dictionaries[carrier]
+            keys = list(dictionary.keys())
+            
+            # ファジーマッチング実行（70点以上でマッチ）
+            match = process.extractOne(label, keys, scorer=fuzz.partial_ratio)
+            
+            if match and match[1] >= 70:
+                matched_key = match[0]
+                category = dictionary[matched_key]
+                return {
+                    'category': category, 
+                    'pattern': matched_key,
+                    'score': match[1]
+                }
+            
+            return None
+            
+        except ImportError:
+            # rapidfuzzが利用できない場合は正規表現フォールバック
+            return self._regex_fallback_classify(label, carrier)
+        except Exception as e:
+            logger.warning(f"ファジーマッチングエラー: {str(e)}")
+            return None
+    
+    def _regex_fallback_classify(self, label: str, carrier: str) -> Optional[Dict]:
+        """rapidfuzzが利用できない場合の正規表現フォールバック"""
         # 文字化けパターンと正しい項目のマッピング
         fuzzy_patterns = {
             'softbank': {
                 # データ通信関連
-                r'.*[Dd][Aa][Tt][Aa].*': BillCategory.DATA,
-                r'.*[Ll][Tt][Ee].*': BillCategory.DATA,
-                r'.*[Gg][Hh][Aa].*': BillCategory.DATA,
-                r'.*[Kk][Oo][Mm].*': BillCategory.DATA,
+                r'.*[Dd][Aa][Tt][Aa].*': BillCategory.OPTION,
+                r'.*[Ll][Tt][Ee].*': BillCategory.OPTION,
+                r'.*[Gg][Hh][Aa].*': BillCategory.OPTION,
+                r'.*[Kk][Oo][Mm].*': BillCategory.OPTION,
                 # 保証関連
                 r'.*[Aa][Pp][Pp][Ll][Ee].*': BillCategory.OPTION,
                 r'.*[Ss][Aa][Ll][Aa].*': BillCategory.OPTION,
@@ -455,8 +555,8 @@ class StructuredBillAnalyzer:
                 r'.*[Mm][Aa][Ii][Ll].*': BillCategory.OPTION,
                 r'.*[Nn][Aa][Ss].*': BillCategory.OPTION,
                 # 手数料関連
-                r'.*[Rr][Aa][Tt].*': BillCategory.FEE,
-                r'.*[Tt][Oo][Aa].*': BillCategory.FEE,
+                r'.*[Rr][Aa][Tt].*': BillCategory.OPTION,
+                r'.*[Tt][Oo][Aa].*': BillCategory.OPTION,
             }
         }
         
@@ -466,7 +566,7 @@ class StructuredBillAnalyzer:
         patterns = fuzzy_patterns[carrier]
         for pattern, category in patterns.items():
             if re.search(pattern, label, re.IGNORECASE):
-                return {'category': category, 'pattern': pattern}
+                return {'category': category, 'pattern': pattern, 'score': 75}
         
         return None
     
@@ -568,15 +668,51 @@ class StructuredBillAnalyzer:
         return 0.0
     
     def _calculate_line_cost(self, bill_lines: List[BillLine]) -> float:
-        """通信費の計算（端末代金除外）"""
-        exclude_categories = self.business_rules['exclude_from_line_cost']
+        """通信費の計算（端末代金除外・検算ロジック強化）"""
+        # アンカー優先で集約値を取得
+        subtotal = self._get_anchor_amount(bill_lines, ['小計', 'subtotal', '課税対象額'])
+        tax_amount = self._get_anchor_amount(bill_lines, ['消費税等', 'tax', '消費税'])
+        total_amount = self._get_anchor_amount(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'])
         
-        line_cost = 0
-        for line in bill_lines:
-            if line.bill_category not in exclude_categories:
-                line_cost += line.amount
+        print(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
+        logger.info(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
         
-        return max(0, line_cost)  # 負数は0に
+        # 検算ロジック
+        tolerance = self.business_rules['reconciliation_tolerance']
+        
+        if subtotal > 0 and tax_amount > 0 and total_amount > 0:
+            calculated_total = subtotal + tax_amount
+            if abs(calculated_total - total_amount) <= tolerance:
+                # 検算一致：合計金額を採用
+                line_cost = total_amount
+                print(f"検算一致: 合計金額({total_amount:,})を採用")
+                logger.info(f"検算一致: 合計金額({total_amount:,})を採用")
+            else:
+                # 検算不一致：計算値を採用
+                line_cost = calculated_total
+                print(f"検算不一致: 計算値({calculated_total:,})を採用")
+                logger.warning(f"検算不一致: 計算値({calculated_total:,})を採用")
+        elif total_amount > 0:
+            # 合計のみ利用可能
+            line_cost = total_amount
+            print(f"合計のみ: 合計金額({total_amount:,})を採用")
+            logger.info(f"合計のみ: 合計金額({total_amount:,})を採用")
+        elif subtotal > 0 and tax_amount > 0:
+            # 小計+税のみ利用可能
+            line_cost = subtotal + tax_amount
+            print(f"小計+税: 計算値({line_cost:,})を採用")
+            logger.info(f"小計+税: 計算値({line_cost:,})を採用")
+        else:
+            # フォールバック：個別項目の合計（端末除外）
+            exclude_categories = self.business_rules['exclude_from_line_cost']
+            line_cost = 0.0
+            for line in bill_lines:
+                if line.bill_category not in exclude_categories:
+                    line_cost += line.amount
+            print(f"フォールバック: 個別合計({line_cost:,})を採用")
+            logger.warning(f"フォールバック: 個別合計({line_cost:,})を採用")
+        
+        return max(0, line_cost)  # 負数は0にクリップ
     
     def _get_terminal_cost(self, bill_lines: List[BillLine]) -> float:
         """端末代金の取得"""
