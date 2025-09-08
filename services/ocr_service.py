@@ -274,15 +274,31 @@ class OCRService:
                 logger.warning(f"Unexpected image shape: {img_array.shape}")
                 return image
             
-            # ノイズ除去
+            # ノイズ除去（複数手法）
             denoised = cv2.medianBlur(gray, 3)
             
-            # コントラスト調整
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            enhanced = clahe.apply(denoised)
+            # ガウシアンフィルタでさらなるノイズ除去
+            gaussian = cv2.GaussianBlur(denoised, (3, 3), 0)
             
-            # 二値化（適応的閾値処理）
-            binary = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            # コントラスト調整（複数手法）
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(gaussian)
+            
+            # シャープニング（文字の輪郭を強調）
+            kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+            sharpened = cv2.filter2D(enhanced, -1, kernel)
+            
+            # 二値化（複数手法を試行）
+            # 適応的閾値処理
+            binary1 = cv2.adaptiveThreshold(sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            
+            # Otsu閾値処理
+            _, binary2 = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            # より良い結果を選択（白いピクセルが多い方を選択）
+            white_pixels1 = np.sum(binary1 == 255)
+            white_pixels2 = np.sum(binary2 == 255)
+            binary = binary1 if white_pixels1 > white_pixels2 else binary2
             
             # OpenCV画像をPIL形式に変換
             processed_image = Image.fromarray(binary)
@@ -301,10 +317,12 @@ class OCRService:
             logger.error(f"Invalid image type for OCR: {type(image)}, expected PIL.Image.Image")
             return ""
         
-        # タイムアウト対策：設定数を削減し、最適な設定のみ使用
+        # 高精度OCR設定（gensparkレベルを目指す）
         configs = [
-            '--psm 6 --oem 3',  # 単一のテキストブロック（最適）
+            '--psm 6 --oem 3 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzあいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゃゅょっー、。：（）¥円月額料金データ容量通話プラン合計請求金額総額',  # 文字制限付き
+            '--psm 4 --oem 3',  # 単一のテキスト列
             '--psm 3 --oem 3',  # 完全なページ（デフォルト）
+            '--psm 1 --oem 3',  # 自動ページ分割とOCR
         ]
         
         best_text = ""
