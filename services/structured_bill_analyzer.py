@@ -387,6 +387,18 @@ class StructuredBillAnalyzer:
                 print(f"除外パターンにマッチ: {line} (パターン: {pattern})")
                 return line, None
         
+        # 追加の除外パターン（OCRノイズ対策）
+        additional_exclude_patterns = [
+            r'^\s*\d+\s*$',  # 数字のみの行
+            r'^\s*[A-Z]+\s*$',  # 大文字のみの行
+            r'^\s*[a-z]+\s*$',  # 小文字のみの行（短い場合）
+        ]
+        
+        for pattern in additional_exclude_patterns:
+            if re.search(pattern, line):
+                print(f"追加除外パターンにマッチ: {line} (パターン: {pattern})")
+                return line, None
+        
         # 金額パターン（日本語・英語対応）
         amount_patterns = [
             r'¥([0-9,]+)',           # ¥1,000
@@ -431,8 +443,8 @@ class StructuredBillAnalyzer:
         if is_negative:
             amount = -amount
         
-        # 金額の妥当性チェック（0円〜100万円の範囲、かつ整数または小数点以下2桁）
-        if amount < 0 or amount > 1000000:
+        # 金額の妥当性チェック（強化版）
+        if not self._is_valid_amount(amount, line):
             print(f"金額が妥当範囲外: {amount} (行: {line})")
             return line, None
         
@@ -460,6 +472,28 @@ class StructuredBillAnalyzer:
             return line, None
         
         return label, amount
+    
+    def _is_valid_amount(self, amount: float, line: str) -> bool:
+        """金額の妥当性チェック（強化版）"""
+        # 基本的な範囲チェック
+        if amount < 0 or amount > 1000000:
+            return False
+        
+        # 異常に小さい金額の除外（1円未満、ただし割引は除く）
+        if amount > 0 and amount < 1:
+            return False
+        
+        # 異常に大きい金額の除外（請求書としては現実的でない）
+        if amount > 500000:  # 50万円以上は異常
+            return False
+        
+        # 小数点以下の桁数チェック
+        if amount != int(amount):
+            decimal_part = str(amount).split('.')[1]
+            if len(decimal_part) > 2:
+                return False
+        
+        return True
     
     def _classify_with_carrier_dictionary(self, bill_lines: List[BillLine], carrier: str = None) -> List[BillLine]:
         """キャリア別語彙辞書で分類（ファジーマッチング対応）"""
@@ -646,7 +680,7 @@ class StructuredBillAnalyzer:
         return 0.0
     
     def _fallback_anchor_amount(self, bill_lines: List[BillLine], anchor_keywords: List[str]) -> float:
-        """アンカーが見つからない場合のフォールバック"""
+        """アンカーが見つからない場合のフォールバック（重複防止）"""
         # 金額の大きさで推定
         amounts = [line.amount for line in bill_lines if line.amount > 0]
         if not amounts:
@@ -667,12 +701,35 @@ class StructuredBillAnalyzer:
         
         return 0.0
     
+    def _get_anchor_amount_with_used_tracking(self, bill_lines: List[BillLine], anchor_keywords: List[str], used_amounts: set) -> float:
+        """アンカーキーワードで集約値を取得（使用済み金額追跡）"""
+        for line in bill_lines:
+            for keyword in anchor_keywords:
+                if keyword.lower() in line.label.lower():
+                    if line.amount not in used_amounts:
+                        used_amounts.add(line.amount)
+                        print(f"アンカー発見: '{line.label}' -> {keyword} = ¥{line.amount:,}")
+                        return line.amount
+        
+        # アンカーが見つからない場合はフォールバック
+        print(f"アンカー未発見: {anchor_keywords}")
+        fallback_amount = self._fallback_anchor_amount(bill_lines, anchor_keywords)
+        if fallback_amount > 0 and fallback_amount not in used_amounts:
+            used_amounts.add(fallback_amount)
+            print(f"フォールバック成功: {anchor_keywords} = ¥{fallback_amount:,}")
+            return fallback_amount
+        
+        return 0.0
+    
     def _calculate_line_cost(self, bill_lines: List[BillLine]) -> float:
-        """通信費の計算（端末代金除外・検算ロジック強化）"""
-        # アンカー優先で集約値を取得
-        subtotal = self._get_anchor_amount(bill_lines, ['小計', 'subtotal', '課税対象額'])
-        tax_amount = self._get_anchor_amount(bill_lines, ['消費税等', 'tax', '消費税'])
-        total_amount = self._get_anchor_amount(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'])
+        """通信費の計算（端末代金除外・検算ロジック強化・重複防止）"""
+        # 使用済み金額を追跡
+        used_amounts = set()
+        
+        # アンカー優先で集約値を取得（重複防止）
+        subtotal = self._get_anchor_amount_with_used_tracking(bill_lines, ['小計', 'subtotal', '課税対象額'], used_amounts)
+        tax_amount = self._get_anchor_amount_with_used_tracking(bill_lines, ['消費税等', 'tax', '消費税'], used_amounts)
+        total_amount = self._get_anchor_amount_with_used_tracking(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'], used_amounts)
         
         print(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
         logger.info(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
