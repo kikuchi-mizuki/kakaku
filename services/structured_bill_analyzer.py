@@ -279,6 +279,11 @@ class StructuredBillAnalyzer:
                 print(f"通信費が0のため信頼度を調整: {confidence:.2f}")
                 logger.warning(f"通信費が0のため信頼度を調整: {confidence:.2f}")
             
+            # 信頼度ゲート：0.8未満の場合は後段処理を停止
+            if confidence < 0.8:
+                print(f"信頼度ゲート: {confidence:.2f} < 0.8 のため後段処理を停止")
+                logger.warning(f"信頼度ゲート: {confidence:.2f} < 0.8 のため後段処理を停止")
+            
             return {
                 'carrier': carrier or 'Unknown',
                 'line_cost': line_cost,
@@ -287,7 +292,8 @@ class StructuredBillAnalyzer:
                 'bill_lines': [self._line_to_dict(line) for line in validated_lines],
                 'summary': self._summary_to_dict(summary),
                 'confidence': confidence,
-                'analysis_details': self._generate_analysis_details(line_cost, confidence, carrier)
+                'analysis_details': self._generate_analysis_details(line_cost, confidence, carrier),
+                'reliable': confidence >= 0.8  # 信頼度ゲートフラグ
             }
             
         except Exception as e:
@@ -682,7 +688,7 @@ class StructuredBillAnalyzer:
         return 0.0
     
     def _find_anchor_oneline(self, bill_lines: List[BillLine], anchor_type: str) -> Optional[float]:
-        """アンカー語と同じ行にある最右の金額を取得（同一行限定）"""
+        """アンカー語と同じ行にある最右の金額を取得（同一行限定・確実版）"""
         ANCHORS = {
             "subtotal": r"(小計|課税対象額)",
             "tax": r"(消費税(等)?)",
@@ -698,14 +704,40 @@ class StructuredBillAnalyzer:
             if not pattern.search(line.label):
                 continue
             
-            # その行の金額を取得
-            amount = line.amount
+            # その行の右端金額を取得
+            amount = self._rightmost_amount_on_line(line.label)
             if amount and self._is_valid_anchor_amount(amount, anchor_type):
                 print(f"同一行アンカー発見: '{line.label}' -> {anchor_type} = ¥{amount:,}")
                 return amount
         
         print(f"同一行アンカー未発見: {anchor_type}")
         return None
+    
+    def _rightmost_amount_on_line(self, text: str) -> Optional[float]:
+        """行内の右端金額を取得"""
+        AMOUNT_RE = re.compile(r"[¥￥]?\s*-?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
+        candidates = AMOUNT_RE.findall(text)
+        
+        if not candidates:
+            return None
+        
+        # 右端 ≒ 最後のヒットを優先
+        for token in reversed(candidates):
+            amount = self._to_amount(token)
+            if amount is not None:
+                return amount
+        
+        return None
+    
+    def _to_amount(self, s: str) -> Optional[float]:
+        """文字列を金額に変換（妥当性チェック付き）"""
+        s = s.replace("￥", "¥").replace(",", "")
+        try:
+            v = float(re.sub(r"[^\d\.-]", "", s))
+            # 妥当域: 1〜99,999円（電話番号/IDを排除）
+            return v if 0 < abs(v) < 100000 else None
+        except:
+            return None
     
     def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
         """アンカー金額の妥当性チェック"""
@@ -779,8 +811,9 @@ class StructuredBillAnalyzer:
         
         if best_result['status'] == 'reliable':
             line_cost = best_result['amount']
-            print(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,}")
-            logger.info(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,}")
+            confidence = best_result.get('confidence', 0.8)
+            print(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,} (信頼度: {confidence:.2f})")
+            logger.info(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,} (信頼度: {confidence:.2f})")
             return line_cost
         else:
             print(f"判定不能: {best_result['message']}")
@@ -788,51 +821,62 @@ class StructuredBillAnalyzer:
             return 0.0  # 判定不能の場合は0を返す
     
     def _find_best_combination(self, subtotal: Optional[float], tax_amount: Optional[float], total_amount: Optional[float]) -> Dict:
-        """組合せフィットで最良セットを選ぶ"""
+        """組合せフィットで最良セットを選ぶ（安全側検算）"""
         tolerance = self.business_rules['reconciliation_tolerance']
+        
+        # 合計の妥当性チェック
+        total_amount = self._sanitize_total(total_amount)
         
         # 1. subtotal & tax & total が揃い、検算一致 → total 採用
         if subtotal and tax_amount and total_amount:
             calculated_total = subtotal + tax_amount
-            if abs(calculated_total - total_amount) <= tolerance:
-                # 税の妥当性チェック
-                if self._is_valid_tax_ratio(tax_amount, subtotal):
-                    return {
-                        'status': 'reliable',
-                        'amount': total_amount,
-                        'method': '検算一致（合計採用）'
-                    }
-        
-        # 2. subtotal & tax が揃い、税が妥当 → s+t 採用
-        if subtotal and tax_amount:
-            if self._is_valid_tax_ratio(tax_amount, subtotal):
+            if abs(calculated_total - total_amount) <= tolerance and self._is_valid_tax_ratio(tax_amount, subtotal):
                 return {
                     'status': 'reliable',
-                    'amount': subtotal + tax_amount,
-                    'method': '小計+税（税妥当）'
+                    'amount': total_amount,
+                    'method': '検算一致（合計採用）',
+                    'confidence': 0.95
                 }
         
+        # 2. subtotal & tax が揃い、税が妥当 → s+t 採用
+        if subtotal and tax_amount and self._is_valid_tax_ratio(tax_amount, subtotal):
+            return {
+                'status': 'reliable',
+                'amount': subtotal + tax_amount,
+                'method': '小計+税（税妥当）',
+                'confidence': 0.9
+            }
+        
         # 3. total のみ妥当 → total 採用
-        if total_amount and total_amount >= 1000:
+        if total_amount:
             return {
                 'status': 'reliable',
                 'amount': total_amount,
-                'method': '合計のみ'
+                'method': '合計のみ',
+                'confidence': 0.8
             }
         
-        # 4. それ以外 → 判定不能
+        # 4. それ以外 → 判定不能（確定値を出さない）
         return {
             'status': 'unreliable',
-            'message': '明細の合計が特定できませんでした。画像の鮮明度を確認してください。'
+            'message': '明細の合計が特定できませんでした。画像の鮮明度を確認してください。',
+            'confidence': 0.0
         }
     
     def _is_valid_tax_ratio(self, tax_amount: float, subtotal: float) -> bool:
-        """税の妥当性チェック（5〜15%の範囲）"""
-        if subtotal <= 0:
+        """税の妥当性チェック（日本の消費税10%を中心に±1.5%を許容）"""
+        if not subtotal or not tax_amount:
             return False
         
-        tax_ratio = tax_amount / subtotal
-        return 0.05 <= tax_ratio <= 0.15  # 5%〜15%の範囲
+        ratio = tax_amount / subtotal
+        return 0.085 <= ratio <= 0.115  # 8.5%〜11.5%の範囲
+    
+    def _sanitize_total(self, total: Optional[float]) -> Optional[float]:
+        """合計の妥当性チェック（脚注誤掴み回避）"""
+        if total is None:
+            return None
+        # 合計が1,000円未満なら無効（脚注・手数料の誤掴み避け）
+        return total if total >= 1000 else None
     
     def _generate_analysis_details(self, line_cost: float, confidence: float, carrier: str) -> List[str]:
         """分析詳細を生成"""
