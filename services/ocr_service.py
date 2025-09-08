@@ -231,6 +231,11 @@ class OCRService:
             import cv2
             import numpy as np
             
+            # 画像オブジェクトの型チェック
+            if not isinstance(image, Image.Image):
+                logger.error(f"Invalid image type: {type(image)}, expected PIL.Image.Image")
+                return image
+            
             # 画像の基本情報をログ出力
             logger.info(f"Original image mode: {image.mode}, size: {image.size}")
             
@@ -291,6 +296,11 @@ class OCRService:
     
     def _extract_text_with_multiple_configs(self, image: Image.Image) -> str:
         """複数の設定でOCRを実行し、最良の結果を返す（タイムアウト対策）"""
+        # 画像オブジェクトの型チェック
+        if not isinstance(image, Image.Image):
+            logger.error(f"Invalid image type for OCR: {type(image)}, expected PIL.Image.Image")
+            return ""
+        
         # タイムアウト対策：設定数を削減し、最適な設定のみ使用
         configs = [
             '--psm 6 --oem 3',  # 単一のテキストブロック（最適）
@@ -403,6 +413,17 @@ class OCRService:
             # 画像を読み込み
             try:
                 image = Image.open(image_path)
+                
+                # 画像オブジェクトの型チェック
+                if not isinstance(image, Image.Image):
+                    logger.error(f"Failed to load image as PIL.Image: {type(image)}")
+                    return {
+                        'text': '',
+                        'confidence': 0.0,
+                        'blocks': [],
+                        'method': 'tesseract'
+                    }
+                
                 logger.info(f"Image loaded successfully: {image.mode}, {image.size}")
             except Exception as e:
                 logger.error(f"Failed to load image: {str(e)}")
