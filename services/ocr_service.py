@@ -227,6 +227,7 @@ class OCRService:
     
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
         """画像前処理を改善"""
+        logger.info(f"Starting image preprocessing with type: {type(image)}")
         try:
             import cv2
             import numpy as np
@@ -302,6 +303,7 @@ class OCRService:
             
             # OpenCV画像をPIL形式に変換
             processed_image = Image.fromarray(binary)
+            logger.info(f"Converted back to PIL Image: {type(processed_image)}, mode: {processed_image.mode}, size: {processed_image.size}")
             
             logger.info("Image preprocessing completed successfully")
             return processed_image
@@ -465,7 +467,9 @@ class OCRService:
                 }
             
             # 画像前処理を改善
+            logger.info(f"About to preprocess image of type: {type(image)}")
             processed_image = self._preprocess_image(image)
+            logger.info(f"Preprocessing returned type: {type(processed_image)}")
             
             # 画像前処理結果の型チェック
             if not isinstance(processed_image, Image.Image):
