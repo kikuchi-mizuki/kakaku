@@ -394,7 +394,7 @@ class StructuredBillAnalyzer:
         return label, amount
     
     def _classify_with_carrier_dictionary(self, bill_lines: List[BillLine], carrier: str = None) -> List[BillLine]:
-        """キャリア別語彙辞書で分類"""
+        """キャリア別語彙辞書で分類（ファジーマッチング対応）"""
         if not carrier or carrier not in self.carrier_dictionaries:
             carrier = 'generic'  # デフォルト
         
@@ -405,21 +405,70 @@ class StructuredBillAnalyzer:
         classified_count = 0
         for line in bill_lines:
             print(f"分類対象: '{line.label}' (金額: ¥{line.amount:,})")
-            # 辞書で分類
+            
+            # 1. 通常の辞書マッチング
+            matched = False
             for keyword, category in dictionary.items():
                 if keyword.lower() in line.label.lower():
                     line.bill_category = category
                     line.confidence = 0.9
                     classified_count += 1
+                    matched = True
                     print(f"辞書分類成功: '{line.label}' -> {category.value} (キーワード: {keyword})")
                     logger.info(f"辞書分類成功: '{line.label}' -> {category.value} (キーワード: {keyword})")
                     break
-            else:
-                print(f"辞書分類失敗: '{line.label}' - マッチするキーワードなし")
+            
+            # 2. ファジーマッチング（文字化け対応）
+            if not matched:
+                fuzzy_match = self._fuzzy_classify(line.label, carrier)
+                if fuzzy_match:
+                    line.bill_category = fuzzy_match['category']
+                    line.confidence = 0.7  # ファジーマッチは信頼度を下げる
+                    classified_count += 1
+                    print(f"ファジー分類成功: '{line.label}' -> {fuzzy_match['category'].value} (パターン: {fuzzy_match['pattern']})")
+                    logger.info(f"ファジー分類成功: '{line.label}' -> {fuzzy_match['category'].value} (パターン: {fuzzy_match['pattern']})")
+                else:
+                    print(f"分類失敗: '{line.label}' - マッチするキーワードなし")
         
         print(f"分類完了: {classified_count}/{len(bill_lines)} 行が分類されました")
         logger.info(f"分類完了: {classified_count}/{len(bill_lines)} 行が分類されました")
         return bill_lines
+    
+    def _fuzzy_classify(self, label: str, carrier: str) -> Optional[Dict]:
+        """文字化け対応のファジーマッチング"""
+        # 文字化けパターンと正しい項目のマッピング
+        fuzzy_patterns = {
+            'softbank': {
+                # データ通信関連
+                r'.*[Dd][Aa][Tt][Aa].*': BillCategory.DATA,
+                r'.*[Ll][Tt][Ee].*': BillCategory.DATA,
+                r'.*[Gg][Hh][Aa].*': BillCategory.DATA,
+                r'.*[Kk][Oo][Mm].*': BillCategory.DATA,
+                # 保証関連
+                r'.*[Aa][Pp][Pp][Ll][Ee].*': BillCategory.OPTION,
+                r'.*[Ss][Aa][Ll][Aa].*': BillCategory.OPTION,
+                r'.*[Ww][Oo][Ww].*': BillCategory.OPTION,
+                # Wi-Fi関連
+                r'.*[Ww][Ii].*[Ff][Ii].*': BillCategory.OPTION,
+                r'.*[Ss][Pp][Oo][Tt].*': BillCategory.OPTION,
+                # メール関連
+                r'.*[Mm][Aa][Ii][Ll].*': BillCategory.OPTION,
+                r'.*[Nn][Aa][Ss].*': BillCategory.OPTION,
+                # 手数料関連
+                r'.*[Rr][Aa][Tt].*': BillCategory.FEE,
+                r'.*[Tt][Oo][Aa].*': BillCategory.FEE,
+            }
+        }
+        
+        if carrier not in fuzzy_patterns:
+            return None
+        
+        patterns = fuzzy_patterns[carrier]
+        for pattern, category in patterns.items():
+            if re.search(pattern, label, re.IGNORECASE):
+                return {'category': category, 'pattern': pattern}
+        
+        return None
     
     def _normalize_amounts(self, bill_lines: List[BillLine]) -> List[BillLine]:
         """金額の正規化"""
@@ -487,13 +536,34 @@ class StructuredBillAnalyzer:
                     print(f"アンカー発見: '{line.label}' -> {keyword} = ¥{line.amount:,}")
                     return line.amount
         
-        # アンカーが見つからない場合はカテゴリベースで取得
+        # アンカーが見つからない場合はフォールバック
+        print(f"アンカー未発見: {anchor_keywords}")
+        fallback_amount = self._fallback_anchor_amount(bill_lines, anchor_keywords)
+        if fallback_amount > 0:
+            print(f"フォールバック成功: {anchor_keywords} = ¥{fallback_amount:,}")
+            return fallback_amount
+        
+        return 0.0
+    
+    def _fallback_anchor_amount(self, bill_lines: List[BillLine], anchor_keywords: List[str]) -> float:
+        """アンカーが見つからない場合のフォールバック"""
+        # 金額の大きさで推定
+        amounts = [line.amount for line in bill_lines if line.amount > 0]
+        if not amounts:
+            return 0.0
+        
+        amounts.sort(reverse=True)  # 大きい順
+        
         if '小計' in anchor_keywords or 'subtotal' in anchor_keywords:
-            return self._get_amount_by_category(bill_lines, BillCategory.SUBTOTAL)
+            # 小計は最大金額の可能性が高い
+            return amounts[0] if amounts else 0.0
         elif '消費税' in anchor_keywords or 'tax' in anchor_keywords:
-            return self._get_amount_by_category(bill_lines, BillCategory.TAX)
+            # 消費税は小さい金額（通常1000円以下）
+            small_amounts = [a for a in amounts if a < 1000]
+            return small_amounts[0] if small_amounts else 0.0
         elif '合計' in anchor_keywords or 'total' in anchor_keywords:
-            return self._get_amount_by_category(bill_lines, BillCategory.TOTAL)
+            # 合計は最大金額
+            return amounts[0] if amounts else 0.0
         
         return 0.0
     
