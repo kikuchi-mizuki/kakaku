@@ -135,6 +135,40 @@ class LineService:
                 analysis_parts.append(f"年間節約: ¥{monthly_saving * 12:,}")
                 analysis_parts.append(f"10年累積: ¥{monthly_saving * 12 * 10:,}")
                 analysis_parts.append(f"50年累積: ¥{monthly_saving * 12 * 50:,}")
+                
+                # その金額でできることの例示
+                analysis_parts.append(f"\n🎁 **その金額でできること**")
+                yearly_saving = monthly_saving * 12
+                if yearly_saving >= 100000:
+                    analysis_parts.append("年間: 海外旅行1回")
+                elif yearly_saving >= 50000:
+                    analysis_parts.append("年間: 国内旅行2回")
+                elif yearly_saving >= 30000:
+                    analysis_parts.append("年間: 高級レストラン10回")
+                elif yearly_saving >= 20000:
+                    analysis_parts.append("年間: 新しい服・靴")
+                else:
+                    analysis_parts.append("年間: 映画・コンサート5回")
+                
+                # 10年累積での例示
+                ten_year = yearly_saving * 10
+                if ten_year >= 1000000:
+                    analysis_parts.append("10年累積: 新車購入")
+                elif ten_year >= 500000:
+                    analysis_parts.append("10年累積: 高級腕時計")
+                elif ten_year >= 300000:
+                    analysis_parts.append("10年累積: 海外旅行10回")
+                else:
+                    analysis_parts.append("10年累積: 高級家電一式")
+            
+            # dモバイルのメリット
+            analysis_parts.append(f"\n🌟 **dモバイルのメリット**")
+            analysis_parts.append("📶 docomo回線で安定した通信品質")
+            analysis_parts.append("🔄 毎日リセット型データ容量")
+            analysis_parts.append("📞 かけ放題オプション充実")
+            analysis_parts.append("💰 格安料金でdocomo回線を利用")
+            analysis_parts.append("🎯 シンプルで分かりやすい料金体系")
+            analysis_parts.append("📱 最新スマートフォン対応")
             
             # 解析信頼度
             analysis_parts.append(f"\n🎯 **解析信頼度**")
