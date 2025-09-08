@@ -6,7 +6,6 @@ import pytesseract
 from PIL import Image
 import cv2
 import numpy as np
-import os
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -42,18 +41,11 @@ class OCRService:
     def extract_text(self, image_path: str) -> Dict:
         """画像からテキストを抽出"""
         try:
-            # 画像前処理
-            processed_image_path = self._preprocess_image(image_path)
-            
             # OCR実行（Google Vision API優先、Tesseractフォールバック）
             if self.vision_client:
-                ocr_result = self._extract_with_google_vision(processed_image_path)
+                ocr_result = self._extract_with_google_vision(image_path)
             else:
-                ocr_result = self._extract_with_tesseract(processed_image_path)
-            
-            # 一時ファイルを削除
-            if processed_image_path != image_path and os.path.exists(processed_image_path):
-                os.remove(processed_image_path)
+                ocr_result = self._extract_with_tesseract(image_path)
             
             return ocr_result
             
@@ -256,13 +248,10 @@ class OCRService:
                     # RGBAからRGBに変換
                     img_array = img_array[:, :, :3]
                     logger.info("Converted RGBA to RGB")
-                elif img_array.shape[2] == 3:  # RGB
-                    # RGBからBGRに変換（OpenCVはBGR形式）
-                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                    logger.info("Converted RGB to BGR")
-                else:
-                    logger.warning(f"Unexpected color channels: {img_array.shape[2]}")
-                    return image
+                
+                # RGBからBGRに変換（OpenCVはBGR形式）
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                logger.info("Converted RGB to BGR")
                 
                 # グレースケール変換
                 gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
@@ -287,7 +276,7 @@ class OCRService:
             
             # シャープニング（文字の輪郭を強調）
             kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-            sharpened = cv2.filter2D(enhanced, -1, kernel)
+            sharpened = cv2.filter2D(gaussian, -1, kernel)
             
             # 二値化（複数手法を試行）
             # 適応的閾値処理
@@ -484,7 +473,7 @@ class OCRService:
             logger.info(f"OCR completed, returned text length: {len(text) if text else 0}")
             
             # 信頼度を取得
-            data = pytesseract.image_to_data(image, lang='jpn+eng', output_type=pytesseract.Output.DICT)
+            data = pytesseract.image_to_data(processed_image, lang='jpn+eng', output_type=pytesseract.Output.DICT)
             
             # 平均信頼度を計算
             confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
