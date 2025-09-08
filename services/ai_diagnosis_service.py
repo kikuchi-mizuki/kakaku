@@ -98,25 +98,53 @@ class AIDiagnosisService:
                     logger.info(f"Structured analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
                     return structured_result
                 else:
-                    logger.warning("Structured analysis failed or not reliable, falling back to OpenAI analysis")
+                    logger.warning("Structured analysis failed or not reliable")
+                    # 信頼度が低い場合は適切なエラーメッセージを返す
+                    return {
+                        'carrier': 'Unknown',
+                        'line_cost': 0,
+                        'total_cost': 0,
+                        'terminal_cost': 0,
+                        'confidence': 0.0,
+                        'reliable': False,
+                        'analysis_details': structured_result.get('analysis_details', [
+                            '【分析結果】',
+                            '明細の合計が特定できませんでした',
+                            '',
+                            '【原因】',
+                            '• 画像の文字化けが激しく、アンカー（小計・消費税・合計）が読み取れません',
+                            '• 請求書の重要な部分が認識できていません',
+                            '',
+                            '【推奨対応】',
+                            '1. 画像の鮮明度を確認してください',
+                            '2. 請求書全体が写るように撮影してください',
+                            '3. 光の反射や影を避けて撮影してください',
+                            '4. より鮮明な画像で再試行してください'
+                        ])
+                    }
             except Exception as e:
-                logger.warning(f"Structured analysis error: {str(e)}, falling back to OpenAI analysis")
-            
-            # 2. OpenAI APIを使用する場合
-            if self.use_openai:
-                analysis_result = self._analyze_with_openai(ocr_text)
-                if analysis_result and analysis_result.get('confidence', 0) > Config.AI_CONFIDENCE_THRESHOLD:
-                    logger.info("OpenAI analysis completed successfully")
-                    return analysis_result
-                else:
-                    logger.warning("OpenAI analysis failed or low confidence, falling back to rule-based analysis")
-            
-            # 3. ルールベース分析（フォールバック）
-            analysis_result = self._analyze_with_rules(ocr_text)
-            
-            logger.info(f"AI diagnosis completed: {analysis_result['carrier']}, Line cost: ¥{analysis_result['line_cost']:,}")
-            
-            return analysis_result
+                logger.warning(f"Structured analysis error: {str(e)}")
+                # 構造化分析でエラーが発生した場合も適切なエラーメッセージを返す
+                return {
+                    'carrier': 'Unknown',
+                    'line_cost': 0,
+                    'total_cost': 0,
+                    'terminal_cost': 0,
+                    'confidence': 0.0,
+                    'reliable': False,
+                    'analysis_details': [
+                        '【分析結果】',
+                        '解析中にエラーが発生しました',
+                        '',
+                        '【原因】',
+                        f'• エラー種別: {type(e).__name__}',
+                        f'• エラー内容: {str(e)}',
+                        '',
+                        '【推奨対応】',
+                        '1. 画像の鮮明度を確認してください',
+                        '2. より鮮明な画像で再試行してください'
+                    ]
+                }
             
         except Exception as e:
             logger.error(f"Error in AI diagnosis: {str(e)}")
