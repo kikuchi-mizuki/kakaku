@@ -321,6 +321,7 @@ class OCRService:
     
     def _extract_text_with_multiple_configs(self, image: Image.Image) -> str:
         """複数の設定でOCRを実行し、最良の結果を返す（タイムアウト対策）"""
+        logger.info(f"OCR method called with image type: {type(image)}")
         # 画像オブジェクトの型チェック
         if not isinstance(image, Image.Image):
             logger.error(f"Invalid image type for OCR: {type(image)}, expected PIL.Image.Image")
@@ -339,6 +340,7 @@ class OCRService:
         
         for config in configs:
             try:
+                logger.info(f"Trying OCR config: {config}")
                 # テキスト抽出（タイムアウト設定）
                 text = pytesseract.image_to_string(image, lang='jpn+eng', config=config, timeout=10)
                 
@@ -477,7 +479,9 @@ class OCRService:
                 processed_image = image  # 元の画像を使用
             
             # OCR実行（複数の設定で試行）
+            logger.info(f"About to call OCR with processed_image type: {type(processed_image)}")
             text = self._extract_text_with_multiple_configs(processed_image)
+            logger.info(f"OCR completed, returned text length: {len(text) if text else 0}")
             
             # 信頼度を取得
             data = pytesseract.image_to_data(image, lang='jpn+eng', output_type=pytesseract.Output.DICT)
