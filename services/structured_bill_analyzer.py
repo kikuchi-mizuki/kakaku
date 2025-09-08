@@ -280,6 +280,9 @@ class StructuredBillAnalyzer:
                 # ラベルと金額を抽出
                 label, amount = self._extract_label_and_amount(line)
                 
+                print(f"行解析: '{line}' -> ラベル: '{label}', 金額: {amount}")
+                logger.info(f"行解析: '{line}' -> ラベル: '{label}', 金額: {amount}")
+                
                 if label and amount is not None:
                     bill_line = BillLine(
                         label=label,
@@ -290,9 +293,11 @@ class StructuredBillAnalyzer:
                         raw_text=line
                     )
                     bill_lines.append(bill_line)
-                    logger.info(f"行解析: {label} = ¥{amount:,}")
+                    print(f"構造化データ追加: {label} = ¥{amount:,}")
+                    logger.info(f"構造化データ追加: {label} = ¥{amount:,}")
                     
             except Exception as e:
+                print(f"行解析エラー: {line} - {str(e)}")
                 logger.warning(f"行解析エラー: {line} - {str(e)}")
                 continue
         
@@ -344,6 +349,11 @@ class StructuredBillAnalyzer:
         if is_negative:
             amount = -amount
         
+        # 金額の妥当性チェック（0円〜100万円の範囲）
+        if amount < 0 or amount > 1000000:
+            print(f"金額が妥当範囲外: {amount} (行: {line})")
+            return line, None
+        
         # ラベルを抽出（金額部分を除去）
         label = line
         for pattern in amount_patterns + negative_patterns:
@@ -351,6 +361,11 @@ class StructuredBillAnalyzer:
         
         # 余分な文字を除去
         label = re.sub(r'[：:]\s*$', '', label).strip()
+        
+        # ラベルの妥当性チェック（空でない、長すぎない）
+        if not label or len(label) > 100:
+            print(f"ラベルが妥当でない: '{label}' (行: {line})")
+            return line, None
         
         return label, amount
     
@@ -365,15 +380,18 @@ class StructuredBillAnalyzer:
         
         classified_count = 0
         for line in bill_lines:
+            print(f"分類対象: '{line.label}' (金額: ¥{line.amount:,})")
             # 辞書で分類
             for keyword, category in dictionary.items():
                 if keyword.lower() in line.label.lower():
                     line.bill_category = category
                     line.confidence = 0.9
                     classified_count += 1
-                    print(f"辞書分類: '{line.label}' -> {category.value} (キーワード: {keyword})")
-                    logger.info(f"辞書分類: '{line.label}' -> {category.value} (キーワード: {keyword})")
+                    print(f"辞書分類成功: '{line.label}' -> {category.value} (キーワード: {keyword})")
+                    logger.info(f"辞書分類成功: '{line.label}' -> {category.value} (キーワード: {keyword})")
                     break
+            else:
+                print(f"辞書分類失敗: '{line.label}' - マッチするキーワードなし")
         
         print(f"分類完了: {classified_count}/{len(bill_lines)} 行が分類されました")
         logger.info(f"分類完了: {classified_count}/{len(bill_lines)} 行が分類されました")
