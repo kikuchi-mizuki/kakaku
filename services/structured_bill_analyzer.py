@@ -663,21 +663,57 @@ class StructuredBillAnalyzer:
         )
     
     def _get_anchor_amount(self, bill_lines: List[BillLine], anchor_keywords: List[str]) -> float:
-        """アンカーキーワードで集約値を取得"""
+        """アンカーキーワードで集約値を取得（同一行・右端金額限定）"""
         for line in bill_lines:
             for keyword in anchor_keywords:
                 if keyword.lower() in line.label.lower():
                     print(f"アンカー発見: '{line.label}' -> {keyword} = ¥{line.amount:,}")
                     return line.amount
         
-        # アンカーが見つからない場合はフォールバック
+        # アンカーが見つからない場合は0を返す（フォールバック禁止）
         print(f"アンカー未発見: {anchor_keywords}")
-        fallback_amount = self._fallback_anchor_amount(bill_lines, anchor_keywords)
-        if fallback_amount > 0:
-            print(f"フォールバック成功: {anchor_keywords} = ¥{fallback_amount:,}")
-            return fallback_amount
-        
         return 0.0
+    
+    def _find_anchor_oneline(self, bill_lines: List[BillLine], anchor_type: str) -> Optional[float]:
+        """アンカー語と同じ行にある最右の金額を取得（同一行限定）"""
+        ANCHORS = {
+            "subtotal": r"(小計|課税対象額)",
+            "tax": r"(消費税(等)?)",
+            "total": r"((合計)?請求(額|金額)|ご請求金額|合計)"
+        }
+        
+        if anchor_type not in ANCHORS:
+            return None
+        
+        pattern = re.compile(ANCHORS[anchor_type])
+        
+        for line in bill_lines:
+            if not pattern.search(line.label):
+                continue
+            
+            # その行の金額を取得
+            amount = line.amount
+            if amount and self._is_valid_anchor_amount(amount, anchor_type):
+                print(f"同一行アンカー発見: '{line.label}' -> {anchor_type} = ¥{amount:,}")
+                return amount
+        
+        print(f"同一行アンカー未発見: {anchor_type}")
+        return None
+    
+    def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
+        """アンカー金額の妥当性チェック"""
+        if amount <= 0:
+            return False
+        
+        # 小さい金額のアンカー禁止（脚注・手数料の誤掴み避け）
+        if amount < 1000:
+            return False
+        
+        # 異常に大きい金額の除外
+        if amount > 100000:
+            return False
+        
+        return True
     
     def _fallback_anchor_amount(self, bill_lines: List[BillLine], anchor_keywords: List[str]) -> float:
         """アンカーが見つからない場合のフォールバック（重複防止）"""
@@ -722,54 +758,74 @@ class StructuredBillAnalyzer:
         return 0.0
     
     def _calculate_line_cost(self, bill_lines: List[BillLine]) -> float:
-        """通信費の計算（端末代金除外・検算ロジック強化・重複防止）"""
-        # 使用済み金額を追跡
-        used_amounts = set()
+        """通信費の計算（同一行アンカー・値の使い回し禁止・安全側検算）"""
+        # 同一行アンカーで集約値を取得（値の使い回し禁止）
+        subtotal = self._find_anchor_oneline(bill_lines, "subtotal")
+        tax_amount = self._find_anchor_oneline(bill_lines, "tax")
+        total_amount = self._find_anchor_oneline(bill_lines, "total")
         
-        # アンカー優先で集約値を取得（重複防止）
-        subtotal = self._get_anchor_amount_with_used_tracking(bill_lines, ['小計', 'subtotal', '課税対象額'], used_amounts)
-        tax_amount = self._get_anchor_amount_with_used_tracking(bill_lines, ['消費税等', 'tax', '消費税'], used_amounts)
-        total_amount = self._get_anchor_amount_with_used_tracking(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'], used_amounts)
+        print(f"通信費計算: 小計={subtotal or 0:,}, 消費税={tax_amount or 0:,}, 合計={total_amount or 0:,}")
+        logger.info(f"通信費計算: 小計={subtotal or 0:,}, 消費税={tax_amount or 0:,}, 合計={total_amount or 0:,}")
         
-        print(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
-        logger.info(f"通信費計算: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
+        # 組合せフィットで最良セットを選ぶ
+        best_result = self._find_best_combination(subtotal, tax_amount, total_amount)
         
-        # 検算ロジック
+        if best_result['status'] == 'reliable':
+            line_cost = best_result['amount']
+            print(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,}")
+            logger.info(f"信頼できる結果: {best_result['method']} = ¥{line_cost:,}")
+            return line_cost
+        else:
+            print(f"判定不能: {best_result['message']}")
+            logger.warning(f"判定不能: {best_result['message']}")
+            return 0.0  # 判定不能の場合は0を返す
+    
+    def _find_best_combination(self, subtotal: Optional[float], tax_amount: Optional[float], total_amount: Optional[float]) -> Dict:
+        """組合せフィットで最良セットを選ぶ"""
         tolerance = self.business_rules['reconciliation_tolerance']
         
-        if subtotal > 0 and tax_amount > 0 and total_amount > 0:
+        # 1. subtotal & tax & total が揃い、検算一致 → total 採用
+        if subtotal and tax_amount and total_amount:
             calculated_total = subtotal + tax_amount
             if abs(calculated_total - total_amount) <= tolerance:
-                # 検算一致：合計金額を採用
-                line_cost = total_amount
-                print(f"検算一致: 合計金額({total_amount:,})を採用")
-                logger.info(f"検算一致: 合計金額({total_amount:,})を採用")
-            else:
-                # 検算不一致：計算値を採用
-                line_cost = calculated_total
-                print(f"検算不一致: 計算値({calculated_total:,})を採用")
-                logger.warning(f"検算不一致: 計算値({calculated_total:,})を採用")
-        elif total_amount > 0:
-            # 合計のみ利用可能
-            line_cost = total_amount
-            print(f"合計のみ: 合計金額({total_amount:,})を採用")
-            logger.info(f"合計のみ: 合計金額({total_amount:,})を採用")
-        elif subtotal > 0 and tax_amount > 0:
-            # 小計+税のみ利用可能
-            line_cost = subtotal + tax_amount
-            print(f"小計+税: 計算値({line_cost:,})を採用")
-            logger.info(f"小計+税: 計算値({line_cost:,})を採用")
-        else:
-            # フォールバック：個別項目の合計（端末除外）
-            exclude_categories = self.business_rules['exclude_from_line_cost']
-            line_cost = 0.0
-            for line in bill_lines:
-                if line.bill_category not in exclude_categories:
-                    line_cost += line.amount
-            print(f"フォールバック: 個別合計({line_cost:,})を採用")
-            logger.warning(f"フォールバック: 個別合計({line_cost:,})を採用")
+                # 税の妥当性チェック
+                if self._is_valid_tax_ratio(tax_amount, subtotal):
+                    return {
+                        'status': 'reliable',
+                        'amount': total_amount,
+                        'method': '検算一致（合計採用）'
+                    }
         
-        return max(0, line_cost)  # 負数は0にクリップ
+        # 2. subtotal & tax が揃い、税が妥当 → s+t 採用
+        if subtotal and tax_amount:
+            if self._is_valid_tax_ratio(tax_amount, subtotal):
+                return {
+                    'status': 'reliable',
+                    'amount': subtotal + tax_amount,
+                    'method': '小計+税（税妥当）'
+                }
+        
+        # 3. total のみ妥当 → total 採用
+        if total_amount and total_amount >= 1000:
+            return {
+                'status': 'reliable',
+                'amount': total_amount,
+                'method': '合計のみ'
+            }
+        
+        # 4. それ以外 → 判定不能
+        return {
+            'status': 'unreliable',
+            'message': '明細の合計が特定できませんでした'
+        }
+    
+    def _is_valid_tax_ratio(self, tax_amount: float, subtotal: float) -> bool:
+        """税の妥当性チェック（5〜15%の範囲）"""
+        if subtotal <= 0:
+            return False
+        
+        tax_ratio = tax_amount / subtotal
+        return 0.05 <= tax_ratio <= 0.15  # 5%〜15%の範囲
     
     def _get_terminal_cost(self, bill_lines: List[BillLine]) -> float:
         """端末代金の取得"""
