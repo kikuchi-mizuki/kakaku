@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # アプリケーションファイルをコピー
 COPY . .
 
-# ポートを公開
-EXPOSE $PORT
+# ポートを公開（Railwayのデフォルトポート）
+EXPOSE 8080
 
 # アプリケーションを起動
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
