@@ -21,16 +21,22 @@ app.config.from_object(Config)
 # ログ設定
 logger = setup_logger(__name__)
 
+# アプリケーション起動ログ
+logger.info("=" * 50)
+logger.info("🚀 LINE Bot Application Starting...")
+logger.info(f"📅 Start Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+logger.info("=" * 50)
+
 # 設定の検証
 config_valid = False
 try:
     config_valid = Config.validate_required_config()
     if config_valid:
-        logger.info("Configuration validation passed")
+        logger.info("✅ Configuration validation passed")
     else:
-        logger.warning("Configuration validation failed - running in development mode")
+        logger.warning("⚠️ Configuration validation failed - running in development mode")
 except ValueError as e:
-    logger.error(f"Configuration error: {str(e)}")
+    logger.error(f"❌ Configuration error: {str(e)}")
     raise
 
 # LINE Bot API（設定が有効な場合のみ初期化）
@@ -44,12 +50,20 @@ else:
     logger.warning("LINE Bot API not initialized - missing configuration")
 
 # サービス初期化
+logger.info("🔧 Initializing services...")
 line_service = LineService(line_bot_api)
+logger.info("✅ LineService initialized")
 ocr_service = OCRService()
+logger.info("✅ OCRService initialized")
 bill_processor = BillProcessor()
+logger.info("✅ BillProcessor initialized")
 plan_selector = PlanSelector()
+logger.info("✅ PlanSelector initialized")
 cost_comparator = CostComparator()
+logger.info("✅ CostComparator initialized")
 ai_diagnosis_service = AIDiagnosisService()
+logger.info("✅ AIDiagnosisService initialized")
+logger.info("🎉 All services initialized successfully!")
 
 @app.route('/')
 def health_check():
@@ -61,18 +75,26 @@ def health_check():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    logger.info("📨 Webhook request received")
+    
     if not handler:
-        logger.error("LINE Bot handler not initialized - check configuration")
+        logger.error("❌ LINE Bot handler not initialized - check configuration")
         return jsonify({'error': 'Bot not configured'}), 500
     
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     
+    logger.info(f"📝 Request body length: {len(body)} characters")
+    
     try:
         handler.handle(body, signature)
+        logger.info("✅ Webhook handled successfully")
     except InvalidSignatureError:
-        logger.error("Invalid signature")
+        logger.error("❌ Invalid signature")
         return jsonify({'error': 'Invalid signature'}), 400
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
     
     return jsonify({'status': 'OK'})
 
@@ -83,63 +105,89 @@ def callback():
 
 def handle_image_message(event):
     """画像メッセージの処理"""
+    logger.info("🖼️ Image message received")
+    
     if not line_bot_api:
-        logger.error("LINE Bot API not initialized - cannot process image")
+        logger.error("❌ LINE Bot API not initialized - cannot process image")
         return
     
     try:
-        logger.info(f"Received image message from user: {event.source.user_id}")
+        user_id = event.source.user_id
+        logger.info(f"👤 Processing image from user: {user_id}")
         
         # 画像をダウンロード
+        logger.info("📥 Downloading image...")
         message_content = line_bot_api.get_message_content(event.message.id)
         image_data = message_content.content
+        logger.info(f"📊 Image size: {len(image_data)} bytes")
         
         # 一時的に画像を保存
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         image_path = f"temp_image_{timestamp}.jpg"
+        logger.info(f"💾 Saving image to: {image_path}")
         
         with open(image_path, 'wb') as f:
             f.write(image_data)
         
+        logger.info("✅ Image saved successfully")
+        
         # 非同期で処理を実行（reply_tokenは処理完了後に使用）
+        logger.info("🚀 Starting async bill processing...")
         process_bill_async(event, image_path)
         
     except Exception as e:
-        logger.error(f"Error handling image message: {str(e)}")
+        logger.error(f"❌ Error handling image message: {str(e)}")
+        logger.error(f"❌ Error type: {type(e).__name__}")
         # reply_tokenが既に使用されている可能性があるため、エラーログのみ
-        logger.error("Could not send error message - reply token may be invalid")
+        logger.error("⚠️ Could not send error message - reply token may be invalid")
 
 def process_bill_async(event, image_path):
     """請求書の非同期処理"""
+    logger.info("🔄 Starting bill processing...")
+    
     try:
         # 処理開始の応答
+        logger.info("📤 Sending processing message...")
         line_service.send_processing_message(event.reply_token)
         
         # OCR実行
+        logger.info("🔍 Running OCR...")
         ocr_result = ocr_service.extract_text(image_path)
+        logger.info(f"📝 OCR completed: {len(ocr_result['text'])} characters extracted")
         
         # AI診断による詳細分析
+        logger.info("🤖 Running AI diagnosis...")
         analysis_data = ai_diagnosis_service.analyze_bill_with_ai(ocr_result['text'])
+        logger.info(f"🧠 AI diagnosis completed: {analysis_data.get('carrier', 'Unknown')} - ¥{analysis_data.get('line_cost', 0):,}")
         
         # 請求書解析（AI診断結果を使用）
+        logger.info("📊 Processing bill data...")
         bill_data = bill_processor.process_bill(ocr_result)
         bill_data.update(analysis_data)  # AI診断結果を統合
+        logger.info(f"💰 Bill data processed: Total cost ¥{bill_data.get('total_cost', 0):,}")
         
         # プラン選定
+        logger.info("🎯 Selecting recommended plan...")
         recommended_plan = plan_selector.select_plan(bill_data)
+        logger.info(f"📱 Recommended plan: {recommended_plan['name']} - ¥{recommended_plan['monthly_cost']:,}")
         
         # 料金比較（AI診断データを含む）
+        logger.info("⚖️ Comparing costs...")
         comparison_result = cost_comparator.compare_costs(
             current_cost=bill_data['total_cost'],
             recommended_plan=recommended_plan,
             analysis_data=analysis_data
         )
+        logger.info(f"💸 Monthly saving: ¥{comparison_result.get('monthly_saving', 0):,}")
         
         # 結果をLINEで送信（プッシュメッセージとして送信）
+        logger.info("📨 Sending results to user...")
         send_push_message(event.source.user_id, bill_data, recommended_plan, comparison_result, analysis_data)
+        logger.info("✅ Bill processing completed successfully!")
         
     except Exception as e:
-        logger.error(f"Error processing bill: {str(e)}")
+        logger.error(f"❌ Error processing bill: {str(e)}")
+        logger.error(f"❌ Error type: {type(e).__name__}")
         # プッシュメッセージでエラーを送信
         send_push_error_message(event.source.user_id)
     
@@ -147,6 +195,7 @@ def process_bill_async(event, image_path):
         # 一時ファイルを削除
         if os.path.exists(image_path):
             os.remove(image_path)
+            logger.info(f"🗑️ Cleaned up temporary file: {image_path}")
 
 def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None):
     """プッシュメッセージで解析結果を送信（AI診断対応）"""
@@ -222,5 +271,10 @@ if handler:
 if __name__ == '__main__':
     # アップロードフォルダを作成
     os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
+    
+    logger.info("🌐 Starting Flask application...")
+    logger.info(f"🔧 Debug mode: {Config.FLASK_ENV == 'development'}")
+    logger.info(f"🌍 Host: 0.0.0.0, Port: 5000")
+    logger.info("🚀 Application is ready to receive requests!")
     
     app.run(debug=Config.FLASK_ENV == 'development', host='0.0.0.0', port=5000)
