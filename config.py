@@ -54,6 +54,9 @@ class Config:
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     ENABLE_FILE_LOGGING = os.getenv('ENABLE_FILE_LOGGING', 'true').lower() == 'true'
     
+    # Tesseract設定
+    TESSERACT_CMD = os.getenv('TESSERACT_CMD', '/usr/bin/tesseract')
+    
     # AI診断設定
     AI_DIAGNOSIS_ENABLED = os.getenv('AI_DIAGNOSIS_ENABLED', 'true').lower() == 'true'
     AI_CONFIDENCE_THRESHOLD = float(os.getenv('AI_CONFIDENCE_THRESHOLD', '0.7'))

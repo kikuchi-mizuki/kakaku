@@ -259,6 +259,20 @@ railway up
 gcloud run deploy kakaku-bot --source .
 ```
 
+### Railway（推奨）
+
+1. [Railway](https://railway.app/)にアクセス
+2. GitHubリポジトリを接続
+3. 環境変数を設定：
+   ```bash
+   LINE_CHANNEL_ACCESS_TOKEN=your_token
+   LINE_CHANNEL_SECRET=your_secret
+   GOOGLE_APPLICATION_CREDENTIALS=your_credentials
+   OPENAI_API_KEY=your_api_key
+   TESSERACT_CMD=/usr/bin/tesseract
+   ```
+4. 自動デプロイ（`nixpacks.toml`でTesseract自動インストール）
+
 ## ライセンス
 
 MIT License

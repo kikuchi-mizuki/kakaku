@@ -189,13 +189,14 @@ class OCRService:
                 logger.info(f"Tesseract path set from environment: {tesseract_cmd}")
                 return
             
-            # 一般的なTesseractのパス候補
+            # 一般的なTesseractのパス候補（Railway環境対応）
             possible_paths = [
                 '/usr/bin/tesseract',
                 '/usr/local/bin/tesseract',
                 '/opt/homebrew/bin/tesseract',
                 '/usr/bin/tesseract-ocr',
                 '/usr/local/bin/tesseract-ocr',
+                '/nix/store/*/bin/tesseract',  # Nix環境
                 'tesseract'  # PATHにある場合
             ]
             
