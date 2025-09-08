@@ -3,7 +3,7 @@ nixPkgs = ["tesseract", "curl"]
 
 [phases.install]
 cmds = [
-    "pip install -r requirements.txt",
+    "python3 -m pip install -r requirements.txt",
     "mkdir -p /usr/share/tesseract-ocr/4.00/tessdata",
     "curl -L https://github.com/tesseract-ocr/tessdata/raw/main/jpn.traineddata -o /usr/share/tesseract-ocr/4.00/tessdata/jpn.traineddata"
 ]
@@ -12,4 +12,4 @@ cmds = [
 cmds = ["echo 'Build completed'"]
 
 [start]
-cmd = "gunicorn --bind 0.0.0.0:$PORT app:app"
+cmd = "python3 -m gunicorn --bind 0.0.0.0:$PORT app:app"
