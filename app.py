@@ -272,9 +272,12 @@ if __name__ == '__main__':
     # アップロードフォルダを作成
     os.makedirs(Config.UPLOAD_FOLDER, exist_ok=True)
     
+    # ポート設定（環境変数から取得、デフォルトは8080）
+    port = int(os.getenv('PORT', 8080))
+    
     logger.info("🌐 Starting Flask application...")
     logger.info(f"🔧 Debug mode: {Config.FLASK_ENV == 'development'}")
-    logger.info(f"🌍 Host: 0.0.0.0, Port: 8080")
+    logger.info(f"🌍 Host: 0.0.0.0, Port: {port}")
     logger.info("🚀 Application is ready to receive requests!")
     
-    app.run(debug=Config.FLASK_ENV == 'development', host='0.0.0.0', port=8080)
+    app.run(debug=Config.FLASK_ENV == 'development', host='0.0.0.0', port=port)
