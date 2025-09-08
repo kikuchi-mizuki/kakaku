@@ -94,11 +94,11 @@ class AIDiagnosisService:
             # 1. 構造化分析（最優先）
             try:
                 structured_result = self.structured_analyzer.analyze_bill(ocr_text)
-                if structured_result and structured_result.get('confidence', 0) > 0.6:
+                if structured_result and structured_result.get('reliable', False):
                     logger.info(f"Structured analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
                     return structured_result
                 else:
-                    logger.warning("Structured analysis failed or low confidence, falling back to OpenAI analysis")
+                    logger.warning("Structured analysis failed or not reliable, falling back to OpenAI analysis")
             except Exception as e:
                 logger.warning(f"Structured analysis error: {str(e)}, falling back to OpenAI analysis")
             
