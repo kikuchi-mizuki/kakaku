@@ -433,30 +433,44 @@ class StructuredBillAnalyzer:
     
     def _apply_business_rules(self, bill_lines: List[BillLine]) -> List[BillLine]:
         """ビジネスルールで検算"""
-        # 集約値の検証
-        subtotal = self._get_amount_by_category(bill_lines, BillCategory.SUBTOTAL)
-        tax_amount = self._get_amount_by_category(bill_lines, BillCategory.TAX)
-        total_amount = self._get_amount_by_category(bill_lines, BillCategory.TOTAL)
+        # アンカー優先で集約値を取得
+        subtotal = self._get_anchor_amount(bill_lines, ['小計', 'subtotal', '課税対象額'])
+        tax_amount = self._get_anchor_amount(bill_lines, ['消費税等', 'tax', '消費税'])
+        total_amount = self._get_anchor_amount(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'])
+        
+        print(f"検算開始: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
         
         # 検算
         calculated_total = subtotal + tax_amount
         tolerance = self.business_rules['reconciliation_tolerance']
         
         if abs(calculated_total - total_amount) > tolerance:
+            print(f"検算不一致: 計算値({calculated_total:,}) vs 合計({total_amount:,})")
             logger.warning(f"検算不一致: 計算値({calculated_total:,}) vs 合計({total_amount:,})")
-            # 集約行を優先
+            
+            # 集約行を優先（フォールバック）
             if total_amount > 0:
+                print(f"フォールバック: 合計金額({total_amount:,})を優先")
+                logger.info(f"フォールバック: 合計金額({total_amount:,})を優先")
                 # 合計金額を基準に調整
                 adjustment = total_amount - calculated_total
-                logger.info(f"調整: {adjustment:,}円")
+                print(f"調整額: {adjustment:,}円")
+                logger.info(f"調整額: {adjustment:,}円")
+        else:
+            print(f"検算一致: 計算値({calculated_total:,}) = 合計({total_amount:,})")
+            logger.info(f"検算一致: 計算値({calculated_total:,}) = 合計({total_amount:,})")
         
         return bill_lines
     
     def _calculate_summary(self, bill_lines: List[BillLine]) -> BillSummary:
-        """集約値の計算"""
-        subtotal = self._get_amount_by_category(bill_lines, BillCategory.SUBTOTAL)
-        tax_amount = self._get_amount_by_category(bill_lines, BillCategory.TAX)
-        total_amount = self._get_amount_by_category(bill_lines, BillCategory.TOTAL)
+        """集約値の計算（アンカー優先ルール）"""
+        # アンカー優先で集約値を取得
+        subtotal = self._get_anchor_amount(bill_lines, ['小計', 'subtotal', '課税対象額'])
+        tax_amount = self._get_anchor_amount(bill_lines, ['消費税等', 'tax', '消費税'])
+        total_amount = self._get_anchor_amount(bill_lines, ['ご請求金額', 'total', '請求金額', '合計'])
+        
+        print(f"アンカー優先集約値: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
+        logger.info(f"アンカー優先集約値: 小計={subtotal:,}, 消費税={tax_amount:,}, 合計={total_amount:,}")
         
         return BillSummary(
             subtotal=subtotal,
@@ -464,6 +478,24 @@ class StructuredBillAnalyzer:
             total_amount=total_amount,
             line_cost=0  # 後で計算
         )
+    
+    def _get_anchor_amount(self, bill_lines: List[BillLine], anchor_keywords: List[str]) -> float:
+        """アンカーキーワードで集約値を取得"""
+        for line in bill_lines:
+            for keyword in anchor_keywords:
+                if keyword.lower() in line.label.lower():
+                    print(f"アンカー発見: '{line.label}' -> {keyword} = ¥{line.amount:,}")
+                    return line.amount
+        
+        # アンカーが見つからない場合はカテゴリベースで取得
+        if '小計' in anchor_keywords or 'subtotal' in anchor_keywords:
+            return self._get_amount_by_category(bill_lines, BillCategory.SUBTOTAL)
+        elif '消費税' in anchor_keywords or 'tax' in anchor_keywords:
+            return self._get_amount_by_category(bill_lines, BillCategory.TAX)
+        elif '合計' in anchor_keywords or 'total' in anchor_keywords:
+            return self._get_amount_by_category(bill_lines, BillCategory.TOTAL)
+        
+        return 0.0
     
     def _calculate_line_cost(self, bill_lines: List[BillLine]) -> float:
         """通信費の計算（端末代金除外）"""
