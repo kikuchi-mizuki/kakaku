@@ -409,12 +409,19 @@ class AIDiagnosisService:
     def _extract_line_cost(self, text: str) -> int:
         """回線費用の抽出（端末代金を除外）- 改善版"""
         try:
-            # より詳細な金額抽出パターン
+            logger.info("=== 回線費用抽出開始 ===")
+            logger.info(f"入力テキスト: {text[:200]}...")
+            
+            # より詳細な金額抽出パターン（強化版）
             amount_patterns = [
-                r'¥([0-9,]+)',
-                r'([0-9,]+)円',
-                r'([0-9,]+)',
-                r'([0-9]+)'
+                r'¥([0-9,]+)',           # ¥1,000
+                r'([0-9,]+)円',          # 1,000円
+                r'([0-9,]+)',            # 1,000
+                r'([0-9]+)',             # 1000
+                r'([0-9,]+)\.([0-9]{2})', # 1,000.00
+                r'([0-9]+)\.([0-9]{2})',  # 1000.00
+                r'([0-9,]+)円',          # 1,000円（重複だが確実性向上）
+                r'([0-9]+)円'            # 1000円
             ]
             
             # 請求書の構造を分析
@@ -422,8 +429,10 @@ class AIDiagnosisService:
             line_costs = []
             total_cost = 0
             
+            logger.info(f"テキスト行数: {len(lines)}")
+            
             # 1. 明細項目から回線費用を抽出
-            for line in lines:
+            for i, line in enumerate(lines):
                 line = line.strip()
                 if not line:
                     continue
@@ -439,33 +448,38 @@ class AIDiagnosisService:
                                     cost = int(match.replace(',', ''))
                                     if 100 <= cost <= 100000:  # 妥当な範囲
                                         line_costs.append(cost)
-                                        logger.info(f"Found line cost: {keyword} = ¥{cost:,}")
+                                        logger.info(f"行{i+1}: 回線費用発見 - {keyword} = ¥{cost:,} (行内容: {line})")
                                 except ValueError:
                                     continue
+            
+            logger.info(f"明細項目から抽出した回線費用: {line_costs}")
             
             # 2. 合計金額から端末代金を除外
             total_amount = self._extract_total_amount(text)
             terminal_cost = self._extract_terminal_cost(text)
             
+            logger.info(f"合計金額: ¥{total_amount:,}")
+            logger.info(f"端末代金: ¥{terminal_cost:,}")
+            
             if total_amount > 0:
                 # 合計金額から端末代金を引いたものを回線費用とする
                 line_cost = max(0, total_amount - terminal_cost)
-                logger.info(f"Calculated line cost: Total({total_amount:,}) - Terminal({terminal_cost:,}) = {line_cost:,}")
+                logger.info(f"計算方法1: 合計({total_amount:,}) - 端末({terminal_cost:,}) = {line_cost:,}")
                 return line_cost
             
             # 3. 明細項目の合計を使用
             if line_costs:
                 total_line_cost = sum(line_costs)
-                logger.info(f"Sum of line costs: {total_line_cost:,}")
+                logger.info(f"計算方法2: 明細項目合計 = {total_line_cost:,}")
                 return total_line_cost
             
             # 4. フォールバック: 月額料金の推定
             estimated_cost = self._estimate_monthly_cost(text)
             if estimated_cost > 0:
-                logger.info(f"Estimated monthly cost: {estimated_cost:,}")
+                logger.info(f"計算方法3: 推定値 = {estimated_cost:,}")
                 return estimated_cost
             
-            logger.warning("Could not extract line cost")
+            logger.warning("回線費用の抽出に失敗しました")
             return 0
             
         except Exception as e:
@@ -475,7 +489,9 @@ class AIDiagnosisService:
     def _extract_total_amount(self, text: str) -> int:
         """請求書の合計金額を抽出"""
         try:
-            # 合計金額のパターン
+            logger.info("=== 合計金額抽出開始 ===")
+            
+            # 合計金額のパターン（強化版）
             total_patterns = [
                 r'合計[：:]*\s*¥?([0-9,]+)',
                 r'請求金額[：:]*\s*¥?([0-9,]+)',
@@ -483,7 +499,14 @@ class AIDiagnosisService:
                 r'月額料金[：:]*\s*¥?([0-9,]+)',
                 r'料金合計[：:]*\s*¥?([0-9,]+)',
                 r'請求額[：:]*\s*¥?([0-9,]+)',
-                r'支払金額[：:]*\s*¥?([0-9,]+)'
+                r'支払金額[：:]*\s*¥?([0-9,]+)',
+                r'合計\s*¥?([0-9,]+)',
+                r'請求\s*¥?([0-9,]+)',
+                r'月額\s*¥?([0-9,]+)',
+                r'料金\s*¥?([0-9,]+)',
+                r'([0-9,]+)円\s*合計',
+                r'([0-9,]+)円\s*請求',
+                r'([0-9,]+)円\s*月額'
             ]
             
             for pattern in total_patterns:
@@ -492,11 +515,12 @@ class AIDiagnosisService:
                     try:
                         amount = int(match.replace(',', ''))
                         if 1000 <= amount <= 100000:  # 妥当な範囲
-                            logger.info(f"Found total amount: ¥{amount:,}")
+                            logger.info(f"合計金額発見: ¥{amount:,} (パターン: {pattern})")
                             return amount
                     except ValueError:
                         continue
             
+            logger.warning("合計金額の抽出に失敗しました")
             return 0
             
         except Exception as e:
