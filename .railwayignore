@@ -3,6 +3,9 @@
 .nixpacks/
 nixpacks.toml
 
+# Procfileを無視（Dockerfileを使用）
+Procfile
+
 # 不要なファイル
 .git/
 .gitignore
