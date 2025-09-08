@@ -1,0 +1,13 @@
+# RailwayでDockerfileを使用するための設定
+# Nixpacksを無効化
+.nixpacks/
+nixpacks.toml
+
+# 不要なファイル
+.git/
+.gitignore
+README.md
+*.md
+.env
+.env.local
+.env.example

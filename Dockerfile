@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # ポートを公開
-EXPOSE 8080
+EXPOSE $PORT
 
 # アプリケーションを起動
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:$PORT app:app"]
