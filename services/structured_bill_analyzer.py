@@ -49,6 +49,7 @@ class StructuredBillAnalyzer:
         """キャリア別語彙辞書を読み込み"""
         return {
             'softbank': {
+                # 日本語
                 'あんしん保証': BillCategory.OPTION,
                 'My SoftBank': BillCategory.OPTION,
                 '請求書発行手数料': BillCategory.FEE,
@@ -59,9 +60,19 @@ class StructuredBillAnalyzer:
                 '端末分割金': BillCategory.DEVICE,
                 '消費税等': BillCategory.TAX,
                 '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL
+                'ご請求金額': BillCategory.TOTAL,
+                # 英語
+                'Basic Plan': BillCategory.BASE,
+                'Data Usage': BillCategory.DATA,
+                'Voice Usage': BillCategory.VOICE,
+                'Device Payment': BillCategory.DEVICE,
+                'Tax': BillCategory.TAX,
+                'Subtotal': BillCategory.SUBTOTAL,
+                'Total': BillCategory.TOTAL,
+                'Summary of your charges': BillCategory.TOTAL
             },
             'docomo': {
+                # 日本語
                 'spモード': BillCategory.OPTION,
                 'dカードお支払割': BillCategory.DISCOUNT,
                 '基本料金': BillCategory.BASE,
@@ -71,9 +82,18 @@ class StructuredBillAnalyzer:
                 '端末代金': BillCategory.DEVICE,
                 '消費税等': BillCategory.TAX,
                 '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL
+                'ご請求金額': BillCategory.TOTAL,
+                # 英語
+                'Basic Plan': BillCategory.BASE,
+                'Data Usage': BillCategory.DATA,
+                'Voice Usage': BillCategory.VOICE,
+                'Device Payment': BillCategory.DEVICE,
+                'Tax': BillCategory.TAX,
+                'Subtotal': BillCategory.SUBTOTAL,
+                'Total': BillCategory.TOTAL
             },
             'au': {
+                # 日本語
                 '家族割プラス': BillCategory.DISCOUNT,
                 'スマートバリュー': BillCategory.DISCOUNT,
                 '基本料金': BillCategory.BASE,
@@ -82,16 +102,57 @@ class StructuredBillAnalyzer:
                 '端末代金': BillCategory.DEVICE,
                 '消費税等': BillCategory.TAX,
                 '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL
+                'ご請求金額': BillCategory.TOTAL,
+                # 英語
+                'Basic Plan': BillCategory.BASE,
+                'Data Usage': BillCategory.DATA,
+                'Voice Usage': BillCategory.VOICE,
+                'Device Payment': BillCategory.DEVICE,
+                'Tax': BillCategory.TAX,
+                'Subtotal': BillCategory.SUBTOTAL,
+                'Total': BillCategory.TOTAL,
+                'Summary of your charges': BillCategory.TOTAL
             },
             'rakuten': {
+                # 日本語
                 '楽天モバイル': BillCategory.BASE,
                 'データ通信料': BillCategory.DATA,
                 '通話料': BillCategory.VOICE,
                 '端末代金': BillCategory.DEVICE,
                 '消費税等': BillCategory.TAX,
                 '小計': BillCategory.SUBTOTAL,
-                'ご請求金額': BillCategory.TOTAL
+                'ご請求金額': BillCategory.TOTAL,
+                # 英語
+                'Basic Plan': BillCategory.BASE,
+                'Data Usage': BillCategory.DATA,
+                'Voice Usage': BillCategory.VOICE,
+                'Device Payment': BillCategory.DEVICE,
+                'Tax': BillCategory.TAX,
+                'Subtotal': BillCategory.SUBTOTAL,
+                'Total': BillCategory.TOTAL
+            },
+            'generic': {
+                # 汎用英語パターン
+                'Basic Plan': BillCategory.BASE,
+                'Base Plan': BillCategory.BASE,
+                'Monthly Plan': BillCategory.BASE,
+                'Data Usage': BillCategory.DATA,
+                'Data Charge': BillCategory.DATA,
+                'Voice Usage': BillCategory.VOICE,
+                'Voice Charge': BillCategory.VOICE,
+                'Call Charge': BillCategory.VOICE,
+                'Device Payment': BillCategory.DEVICE,
+                'Device Fee': BillCategory.DEVICE,
+                'Installment': BillCategory.DEVICE,
+                'Tax': BillCategory.TAX,
+                'VAT': BillCategory.TAX,
+                'Subtotal': BillCategory.SUBTOTAL,
+                'Total': BillCategory.TOTAL,
+                'Amount': BillCategory.TOTAL,
+                'Bill': BillCategory.TOTAL,
+                'Charge': BillCategory.TOTAL,
+                'Summary of your charges': BillCategory.TOTAL,
+                'Billing': BillCategory.TOTAL
             }
         }
     
@@ -109,10 +170,18 @@ class StructuredBillAnalyzer:
         """請求書を構造化分析"""
         try:
             logger.info("=== 構造化請求書分析開始 ===")
+            logger.info(f"入力テキスト（最初の200文字）: {ocr_text[:200]}...")
+            
+            # 0. キャリア検出（未指定の場合）
+            if not carrier:
+                carrier = self._detect_carrier_from_text(ocr_text)
+                logger.info(f"検出されたキャリア: {carrier}")
             
             # 1. OCRテキストを行ごとに分割
             lines = self._split_into_lines(ocr_text)
             logger.info(f"分割された行数: {len(lines)}")
+            for i, line in enumerate(lines[:5]):  # 最初の5行をログ出力
+                logger.info(f"行{i+1}: {line}")
             
             # 2. 各行を構造化データに変換
             bill_lines = self._parse_lines_to_structured_data(lines, carrier)
@@ -133,7 +202,8 @@ class StructuredBillAnalyzer:
             # 7. 通信費の計算（端末代金除外）
             line_cost = self._calculate_line_cost(validated_lines)
             
-            logger.info(f"分析完了: 通信費 ¥{line_cost:,}")
+            confidence = self._calculate_overall_confidence(validated_lines)
+            logger.info(f"分析完了: 通信費 ¥{line_cost:,}, 信頼度: {confidence:.2f}")
             
             return {
                 'carrier': carrier or 'Unknown',
@@ -142,12 +212,34 @@ class StructuredBillAnalyzer:
                 'terminal_cost': self._get_terminal_cost(validated_lines),
                 'bill_lines': [self._line_to_dict(line) for line in validated_lines],
                 'summary': self._summary_to_dict(summary),
-                'confidence': self._calculate_overall_confidence(validated_lines)
+                'confidence': confidence
             }
             
         except Exception as e:
             logger.error(f"構造化分析エラー: {str(e)}")
             return self._fallback_analysis(ocr_text)
+    
+    def _detect_carrier_from_text(self, text: str) -> str:
+        """テキストからキャリアを検出"""
+        text_lower = text.lower()
+        
+        # キャリア検出パターン
+        carrier_patterns = {
+            'softbank': ['softbank', 'ソフトバンク', 'sb'],
+            'docomo': ['docomo', 'ドコモ', 'ntt'],
+            'au': ['au', 'エーユー', 'kddi'],
+            'rakuten': ['rakuten', '楽天', '楽天モバイル']
+        }
+        
+        for carrier, patterns in carrier_patterns.items():
+            for pattern in patterns:
+                if pattern in text_lower:
+                    logger.info(f"キャリア検出: {carrier} (パターン: {pattern})")
+                    return carrier
+        
+        # デフォルトは汎用辞書を使用
+        logger.info("キャリア検出失敗、汎用辞書を使用")
+        return 'generic'
     
     def _split_into_lines(self, text: str) -> List[str]:
         """OCRテキストを行ごとに分割"""
@@ -244,19 +336,23 @@ class StructuredBillAnalyzer:
     def _classify_with_carrier_dictionary(self, bill_lines: List[BillLine], carrier: str = None) -> List[BillLine]:
         """キャリア別語彙辞書で分類"""
         if not carrier or carrier not in self.carrier_dictionaries:
-            carrier = 'docomo'  # デフォルト
+            carrier = 'generic'  # デフォルト
         
         dictionary = self.carrier_dictionaries[carrier]
+        logger.info(f"使用する辞書: {carrier} (項目数: {len(dictionary)})")
         
+        classified_count = 0
         for line in bill_lines:
             # 辞書で分類
             for keyword, category in dictionary.items():
-                if keyword in line.label:
+                if keyword.lower() in line.label.lower():
                     line.bill_category = category
                     line.confidence = 0.9
-                    logger.info(f"辞書分類: {line.label} -> {category.value}")
+                    classified_count += 1
+                    logger.info(f"辞書分類: '{line.label}' -> {category.value} (キーワード: {keyword})")
                     break
         
+        logger.info(f"分類完了: {classified_count}/{len(bill_lines)} 行が分類されました")
         return bill_lines
     
     def _normalize_amounts(self, bill_lines: List[BillLine]) -> List[BillLine]:
