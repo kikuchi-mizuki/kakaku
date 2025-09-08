@@ -9,9 +9,7 @@ try:
     import requests  # HTTPフォールバック用
 except Exception:
     requests = None
-from typing import Dict, List, Optional
-from datetime import datetime
-from config import Config
+from services.structured_bill_analyzer import StructuredBillAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +19,9 @@ class AIDiagnosisService:
     def __init__(self):
         # 環境変数の検証
         self._validate_environment()
+        
+        # 構造化分析器の初期化
+        self.structured_analyzer = StructuredBillAnalyzer()
         
         # OpenAI API設定
         self.openai_client = None
@@ -86,11 +87,22 @@ class AIDiagnosisService:
         ]
 
     def analyze_bill_with_ai(self, ocr_text: str) -> Dict:
-        """AI診断による請求書分析（OpenAI API統合）"""
+        """AI診断による請求書分析（構造化分析統合）"""
         try:
             logger.info("Starting AI diagnosis of bill")
             
-            # OpenAI APIを使用する場合
+            # 1. 構造化分析（最優先）
+            try:
+                structured_result = self.structured_analyzer.analyze_bill(ocr_text)
+                if structured_result and structured_result.get('confidence', 0) > 0.6:
+                    logger.info(f"Structured analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
+                    return structured_result
+                else:
+                    logger.warning("Structured analysis failed or low confidence, falling back to OpenAI analysis")
+            except Exception as e:
+                logger.warning(f"Structured analysis error: {str(e)}, falling back to OpenAI analysis")
+            
+            # 2. OpenAI APIを使用する場合
             if self.use_openai:
                 analysis_result = self._analyze_with_openai(ocr_text)
                 if analysis_result and analysis_result.get('confidence', 0) > Config.AI_CONFIDENCE_THRESHOLD:
@@ -99,7 +111,7 @@ class AIDiagnosisService:
                 else:
                     logger.warning("OpenAI analysis failed or low confidence, falling back to rule-based analysis")
             
-            # ルールベース分析（フォールバック）
+            # 3. ルールベース分析（フォールバック）
             analysis_result = self._analyze_with_rules(ocr_text)
             
             logger.info(f"AI diagnosis completed: {analysis_result['carrier']}, Line cost: ¥{analysis_result['line_cost']:,}")
