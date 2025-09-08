@@ -231,8 +231,17 @@ class OCRService:
             import cv2
             import numpy as np
             
+            # 画像の基本情報をログ出力
+            logger.info(f"Original image mode: {image.mode}, size: {image.size}")
+            
             # PIL画像をnumpy配列に変換
             img_array = np.array(image)
+            logger.info(f"Image array shape: {img_array.shape}, dtype: {img_array.dtype}")
+            
+            # 空の画像や無効な画像のチェック
+            if img_array.size == 0:
+                logger.error("Empty image array")
+                return image
             
             # 画像の形式を確認・変換
             if len(img_array.shape) == 3:
@@ -240,18 +249,22 @@ class OCRService:
                 if img_array.shape[2] == 4:  # RGBA
                     # RGBAからRGBに変換
                     img_array = img_array[:, :, :3]
+                    logger.info("Converted RGBA to RGB")
                 elif img_array.shape[2] == 3:  # RGB
                     # RGBからBGRに変換（OpenCVはBGR形式）
                     img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                    logger.info("Converted RGB to BGR")
                 else:
                     logger.warning(f"Unexpected color channels: {img_array.shape[2]}")
                     return image
                 
                 # グレースケール変換
                 gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+                logger.info("Converted to grayscale")
             elif len(img_array.shape) == 2:
                 # グレースケール画像の場合
                 gray = img_array
+                logger.info("Image is already grayscale")
             else:
                 logger.warning(f"Unexpected image shape: {img_array.shape}")
                 return image
@@ -377,8 +390,28 @@ class OCRService:
             # Tesseractのパス設定（環境に応じて自動検出）
             self._setup_tesseract_path()
             
+            # 画像ファイルの存在確認
+            if not os.path.exists(image_path):
+                logger.error(f"Image file not found: {image_path}")
+                return {
+                    'text': '',
+                    'confidence': 0.0,
+                    'blocks': [],
+                    'method': 'tesseract'
+                }
+            
             # 画像を読み込み
-            image = Image.open(image_path)
+            try:
+                image = Image.open(image_path)
+                logger.info(f"Image loaded successfully: {image.mode}, {image.size}")
+            except Exception as e:
+                logger.error(f"Failed to load image: {str(e)}")
+                return {
+                    'text': '',
+                    'confidence': 0.0,
+                    'blocks': [],
+                    'method': 'tesseract'
+                }
             
             # 画像前処理を改善
             processed_image = self._preprocess_image(image)
