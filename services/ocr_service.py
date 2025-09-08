@@ -231,11 +231,30 @@ class OCRService:
             import cv2
             import numpy as np
             
-            # PIL画像をOpenCV形式に変換
-            cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            # PIL画像をnumpy配列に変換
+            img_array = np.array(image)
             
-            # グレースケール変換
-            gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+            # 画像の形式を確認・変換
+            if len(img_array.shape) == 3:
+                # カラー画像の場合
+                if img_array.shape[2] == 4:  # RGBA
+                    # RGBAからRGBに変換
+                    img_array = img_array[:, :, :3]
+                elif img_array.shape[2] == 3:  # RGB
+                    # RGBからBGRに変換（OpenCVはBGR形式）
+                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                else:
+                    logger.warning(f"Unexpected color channels: {img_array.shape[2]}")
+                    return image
+                
+                # グレースケール変換
+                gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+            elif len(img_array.shape) == 2:
+                # グレースケール画像の場合
+                gray = img_array
+            else:
+                logger.warning(f"Unexpected image shape: {img_array.shape}")
+                return image
             
             # ノイズ除去
             denoised = cv2.medianBlur(gray, 3)
@@ -258,13 +277,11 @@ class OCRService:
             return image
     
     def _extract_text_with_multiple_configs(self, image: Image.Image) -> str:
-        """複数の設定でOCRを実行し、最良の結果を返す"""
+        """複数の設定でOCRを実行し、最良の結果を返す（タイムアウト対策）"""
+        # タイムアウト対策：設定数を削減し、最適な設定のみ使用
         configs = [
-            '--psm 6 --oem 3',  # 単一のテキストブロック
-            '--psm 4 --oem 3',  # 単一のテキスト列
+            '--psm 6 --oem 3',  # 単一のテキストブロック（最適）
             '--psm 3 --oem 3',  # 完全なページ（デフォルト）
-            '--psm 1 --oem 3',  # 自動ページ分割とOCR
-            '--psm 12 --oem 3', # 生の行（改行なし）
         ]
         
         best_text = ""
@@ -272,11 +289,11 @@ class OCRService:
         
         for config in configs:
             try:
-                # テキスト抽出
-                text = pytesseract.image_to_string(image, lang='jpn+eng', config=config)
+                # テキスト抽出（タイムアウト設定）
+                text = pytesseract.image_to_string(image, lang='jpn+eng', config=config, timeout=10)
                 
-                # 信頼度取得
-                data = pytesseract.image_to_data(image, lang='jpn+eng', config=config, output_type=pytesseract.Output.DICT)
+                # 信頼度取得（タイムアウト設定）
+                data = pytesseract.image_to_data(image, lang='jpn+eng', config=config, output_type=pytesseract.Output.DICT, timeout=10)
                 confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
                 avg_confidence = sum(confidences) / len(confidences) / 100.0 if confidences else 0.0
                 
@@ -287,9 +304,23 @@ class OCRService:
                     best_text = text
                     best_confidence = avg_confidence
                     
+                # 十分な信頼度が得られたら早期終了
+                if avg_confidence > 0.8:
+                    logger.info(f"High confidence achieved ({avg_confidence:.2f}), stopping early")
+                    break
+                    
             except Exception as e:
                 logger.warning(f"OCR config '{config}' failed: {str(e)}")
                 continue
+        
+        # 結果が得られない場合はデフォルト設定で実行
+        if not best_text:
+            try:
+                logger.info("Using default OCR config as fallback")
+                best_text = pytesseract.image_to_string(image, lang='jpn+eng', timeout=15)
+            except Exception as e:
+                logger.error(f"Default OCR config also failed: {str(e)}")
+                best_text = ""
         
         logger.info(f"Best OCR result: {len(best_text)} chars, confidence: {best_confidence:.2f}")
         return best_text
