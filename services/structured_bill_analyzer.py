@@ -273,6 +273,12 @@ class StructuredBillAnalyzer:
             print(f"分析完了: 通信費 ¥{line_cost:,}, 信頼度: {confidence:.2f}")
             logger.info(f"分析完了: 通信費 ¥{line_cost:,}, 信頼度: {confidence:.2f}")
             
+            # 通信費が0の場合は信頼度を下げる
+            if line_cost == 0:
+                confidence = min(confidence, 0.3)  # 最大0.3まで下げる
+                print(f"通信費が0のため信頼度を調整: {confidence:.2f}")
+                logger.warning(f"通信費が0のため信頼度を調整: {confidence:.2f}")
+            
             return {
                 'carrier': carrier or 'Unknown',
                 'line_cost': line_cost,
@@ -280,7 +286,8 @@ class StructuredBillAnalyzer:
                 'terminal_cost': self._get_terminal_cost(validated_lines),
                 'bill_lines': [self._line_to_dict(line) for line in validated_lines],
                 'summary': self._summary_to_dict(summary),
-                'confidence': confidence
+                'confidence': confidence,
+                'analysis_details': self._generate_analysis_details(line_cost, confidence, carrier)
             }
             
         except Exception as e:
@@ -816,7 +823,7 @@ class StructuredBillAnalyzer:
         # 4. それ以外 → 判定不能
         return {
             'status': 'unreliable',
-            'message': '明細の合計が特定できませんでした'
+            'message': '明細の合計が特定できませんでした。画像の鮮明度を確認してください。'
         }
     
     def _is_valid_tax_ratio(self, tax_amount: float, subtotal: float) -> bool:
@@ -826,6 +833,49 @@ class StructuredBillAnalyzer:
         
         tax_ratio = tax_amount / subtotal
         return 0.05 <= tax_ratio <= 0.15  # 5%〜15%の範囲
+    
+    def _generate_analysis_details(self, line_cost: float, confidence: float, carrier: str) -> List[str]:
+        """分析詳細を生成"""
+        details = []
+        
+        if line_cost == 0:
+            details.extend([
+                '【分析結果】',
+                '明細の合計が特定できませんでした',
+                '',
+                '【原因】',
+                '• 画像の文字化けが激しく、アンカー（小計・消費税・合計）が読み取れません',
+                '• 請求書の重要な部分が認識できていません',
+                '',
+                '【推奨対応】',
+                '1. 画像の鮮明度を確認してください',
+                '2. 請求書全体が写るように撮影してください',
+                '3. 光の反射や影を避けて撮影してください',
+                '4. より鮮明な画像で再試行してください'
+            ])
+        elif confidence < 0.5:
+            details.extend([
+                '【分析結果】',
+                f'通信費: ¥{line_cost:,}',
+                f'信頼度: {confidence:.1%} (低)',
+                '',
+                '【注意】',
+                '分析結果の信頼度が低いため、',
+                '手動での確認をお勧めします'
+            ])
+        else:
+            details.extend([
+                '【分析結果】',
+                f'通信費: ¥{line_cost:,}',
+                f'信頼度: {confidence:.1%}',
+                f'キャリア: {carrier}',
+                '',
+                '【推奨】',
+                'dモバイルへの切り替えで',
+                '月額料金の削減が期待できます'
+            ])
+        
+        return details
     
     def _get_terminal_cost(self, bill_lines: List[BillLine]) -> float:
         """端末代金の取得"""
