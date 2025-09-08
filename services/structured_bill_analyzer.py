@@ -305,6 +305,20 @@ class StructuredBillAnalyzer:
     
     def _extract_label_and_amount(self, line: str) -> Tuple[str, Optional[float]]:
         """行からラベルと金額を抽出"""
+        # 日付や電話番号を除外するパターン
+        exclude_patterns = [
+            r'\d{4}[/-]\d{1,2}[/-]\d{1,2}',  # 日付 (2025/06/01)
+            r'\d{4}\d{2}\d{2}',              # 日付 (20250601)
+            r'\d{3}-\d{4}-\d{4}',            # 電話番号 (090-3088-0577)
+            r'\d{10,}',                      # 長い数字 (請求番号など)
+        ]
+        
+        # 除外パターンにマッチする場合は処理をスキップ
+        for pattern in exclude_patterns:
+            if re.search(pattern, line):
+                print(f"除外パターンにマッチ: {line} (パターン: {pattern})")
+                return line, None
+        
         # 金額パターン（日本語・英語対応）
         amount_patterns = [
             r'¥([0-9,]+)',           # ¥1,000
@@ -349,9 +363,14 @@ class StructuredBillAnalyzer:
         if is_negative:
             amount = -amount
         
-        # 金額の妥当性チェック（0円〜100万円の範囲）
+        # 金額の妥当性チェック（0円〜100万円の範囲、かつ整数または小数点以下2桁）
         if amount < 0 or amount > 1000000:
             print(f"金額が妥当範囲外: {amount} (行: {line})")
+            return line, None
+        
+        # 小数点以下の桁数チェック（2桁以下）
+        if amount != int(amount) and len(str(amount).split('.')[1]) > 2:
+            print(f"小数点桁数が多すぎる: {amount} (行: {line})")
             return line, None
         
         # ラベルを抽出（金額部分を除去）
@@ -362,9 +381,14 @@ class StructuredBillAnalyzer:
         # 余分な文字を除去
         label = re.sub(r'[：:]\s*$', '', label).strip()
         
-        # ラベルの妥当性チェック（空でない、長すぎない）
-        if not label or len(label) > 100:
+        # ラベルの妥当性チェック（空でない、長すぎない、意味のある文字を含む）
+        if not label or len(label) > 100 or len(label) < 2:
             print(f"ラベルが妥当でない: '{label}' (行: {line})")
+            return line, None
+        
+        # ラベルに意味のある文字が含まれているかチェック（数字のみ、記号のみは除外）
+        if re.match(r'^[\d\s\-_\(\)\[\]{}]+$', label):
+            print(f"ラベルが数字・記号のみ: '{label}' (行: {line})")
             return line, None
         
         return label, amount
