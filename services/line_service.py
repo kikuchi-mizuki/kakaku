@@ -98,43 +98,48 @@ class LineService:
             
             # 詳細分析テキストの構築
             analysis_parts = []
-            analysis_parts.append("📊 **詳細分析結果**")
-            analysis_parts.append("=" * 25)
+            analysis_parts.append("📊 **現状の月額料金とdモバイルプランご提案**")
+            analysis_parts.append("=" * 40)
             
-            # 現在の状況詳細
-            analysis_parts.append(f"\n📋 **現在の契約詳細**")
-            analysis_parts.append(f"キャリア: {carrier_jp}")
+            # 現在の状況詳細（視覚的に改善）
+            analysis_parts.append(f"\n📱 **【現状】{carrier_jp}**")
+            analysis_parts.append("┌─────────────────────────────┐")
             if current_plan != 'Unknown':
-                analysis_parts.append(f"プラン名: {current_plan}")
-            analysis_parts.append(f"月額回線料金: ¥{line_cost:,}")
+                analysis_parts.append(f"│ プラン名: {current_plan:<20} │")
+            analysis_parts.append(f"│ 月額料金: ¥{line_cost:,}円/月{'':<10} │")
             if terminal_cost > 0:
-                analysis_parts.append(f"端末代金: ¥{terminal_cost:,}")
+                analysis_parts.append(f"│ 端末代金: ¥{terminal_cost:,}円{'':<11} │")
             
             # 使用量分析
             if data_usage > 0 or call_usage > 0:
-                analysis_parts.append(f"\n📈 **使用量分析**")
+                analysis_parts.append("│                             │")
+                analysis_parts.append("│ 📈 使用量分析               │")
                 if data_usage > 0:
-                    analysis_parts.append(f"データ使用量: {data_usage:.1f}GB")
+                    analysis_parts.append(f"│ データ使用量: {data_usage:.1f}GB{'':<12} │")
                 if call_usage > 0:
-                    analysis_parts.append(f"通話時間: {call_usage}分")
+                    analysis_parts.append(f"│ 通話時間: {call_usage}分{'':<15} │")
+            analysis_parts.append("└─────────────────────────────┘")
             
-            # 推奨プラン詳細
-            analysis_parts.append(f"\n🎯 **dモバイル推奨プラン**")
-            analysis_parts.append(f"プラン名: {recommended_plan['name']}")
-            analysis_parts.append(f"月額料金: ¥{recommended_plan['monthly_cost']:,}")
+            # 推奨プラン詳細（視覚的に改善）
+            analysis_parts.append(f"\n🎯 **【ご提案】{recommended_plan['name']}**")
+            analysis_parts.append("┌─────────────────────────────┐")
+            analysis_parts.append(f"│ 月額料金: ¥{recommended_plan['monthly_cost']:,}円/月{'':<10} │")
             if 'data_limit' in recommended_plan:
-                analysis_parts.append(f"データ容量: {recommended_plan['data_limit']}")
+                analysis_parts.append(f"│ データ容量: {recommended_plan['data_limit']}{'':<15} │")
             if 'call_option' in recommended_plan:
-                analysis_parts.append(f"通話オプション: {recommended_plan['call_option']}")
+                analysis_parts.append(f"│ 通話プラン: {recommended_plan['call_option']}{'':<10} │")
+            analysis_parts.append("└─────────────────────────────┘")
             
-            # 節約効果詳細
+            # 節約効果詳細（視覚的に改善）
             monthly_saving = comparison_result.get('monthly_saving', 0)
             if monthly_saving > 0:
                 analysis_parts.append(f"\n💰 **節約効果詳細**")
-                analysis_parts.append(f"月額節約: ¥{monthly_saving:,}")
-                analysis_parts.append(f"年間節約: ¥{monthly_saving * 12:,}")
-                analysis_parts.append(f"10年累積: ¥{monthly_saving * 12 * 10:,}")
-                analysis_parts.append(f"50年累積: ¥{monthly_saving * 12 * 50:,}")
+                analysis_parts.append("┌─────────────────────────────┐")
+                analysis_parts.append(f"│ 月額節約: ¥{monthly_saving:,}円{'':<12} │")
+                analysis_parts.append(f"│ 年間節約: ¥{monthly_saving * 12:,}円{'':<12} │")
+                analysis_parts.append(f"│ 10年累積: ¥{monthly_saving * 12 * 10:,}円{'':<10} │")
+                analysis_parts.append(f"│ 50年累積: ¥{monthly_saving * 12 * 50:,}円{'':<10} │")
+                analysis_parts.append("└─────────────────────────────┘")
                 
                 # その金額でできることの例示
                 analysis_parts.append(f"\n🎁 **その金額でできること**")
@@ -160,6 +165,19 @@ class LineService:
                     analysis_parts.append("10年累積: 海外旅行10回")
                 else:
                     analysis_parts.append("10年累積: 高級家電一式")
+            
+            # 詳細比較表示を追加
+            if monthly_saving > 0:
+                analysis_parts.append(f"\n📊 **詳細比較**")
+                analysis_parts.append("┌─────────────────┬─────────────────┐")
+                analysis_parts.append("│ 項目            │ 現状 → 提案    │")
+                analysis_parts.append("├─────────────────┼─────────────────┤")
+                analysis_parts.append(f"│ 月額料金        │ ¥{line_cost:,} → ¥{recommended_plan['monthly_cost']:,} │")
+                if 'data_limit' in recommended_plan:
+                    current_data = f"{data_usage:.1f}GB" if data_usage > 0 else "不明"
+                    analysis_parts.append(f"│ データ容量      │ {current_data} → {recommended_plan['data_limit']} │")
+                analysis_parts.append(f"│ 月額節約        │ ¥{monthly_saving:,}円{'':<8} │")
+                analysis_parts.append("└─────────────────┴─────────────────┘")
             
             # dモバイルのメリット
             analysis_parts.append(f"\n🌟 **dモバイルのメリット**")
