@@ -51,8 +51,8 @@ class AIDiagnosisService:
                     logger.error("OpenAI API key is invalid or too short")
                     raise ValueError("Invalid OpenAI API key")
                 
-                # OpenAI APIの初期化（完全に分離された環境で実行）
-                self.openai_client = self._initialize_openai_safely(Config.OPENAI_API_KEY)
+                # OpenAI APIの初期化（プロキシ設定を無効化）
+                self.openai_client = self._initialize_openai_without_proxy(Config.OPENAI_API_KEY)
                 logger.info("OpenAI API initialization completed successfully")
                 
             except Exception as e:
@@ -421,7 +421,19 @@ class AIDiagnosisService:
                 r'([0-9,]+)\.([0-9]{2})', # 1,000.00
                 r'([0-9]+)\.([0-9]{2})',  # 1000.00
                 r'([0-9,]+)円',          # 1,000円（重複だが確実性向上）
-                r'([0-9]+)円'            # 1000円
+                r'([0-9]+)円',           # 1000円
+                r'([0-9,]+)\.([0-9]{2})円', # 1,000.00円
+                r'([0-9]+)\.([0-9]{2})円',  # 1000.00円
+                r'([0-9,]+)円\s*合計',    # 1,000円 合計
+                r'([0-9]+)円\s*合計',     # 1000円 合計
+                r'合計\s*¥?([0-9,]+)',   # 合計 ¥1,000
+                r'合計\s*([0-9,]+)円',   # 合計 1,000円
+                r'請求金額\s*¥?([0-9,]+)', # 請求金額 ¥1,000
+                r'請求金額\s*([0-9,]+)円', # 請求金額 1,000円
+                r'月額\s*¥?([0-9,]+)',   # 月額 ¥1,000
+                r'月額\s*([0-9,]+)円',   # 月額 1,000円
+                r'料金\s*¥?([0-9,]+)',   # 料金 ¥1,000
+                r'料金\s*([0-9,]+)円'    # 料金 1,000円
             ]
             
             # 請求書の構造を分析
@@ -506,7 +518,24 @@ class AIDiagnosisService:
                 r'料金\s*¥?([0-9,]+)',
                 r'([0-9,]+)円\s*合計',
                 r'([0-9,]+)円\s*請求',
-                r'([0-9,]+)円\s*月額'
+                r'([0-9,]+)円\s*月額',
+                r'合計[：:]*\s*([0-9,]+)円',
+                r'請求金額[：:]*\s*([0-9,]+)円',
+                r'総額[：:]*\s*([0-9,]+)円',
+                r'月額料金[：:]*\s*([0-9,]+)円',
+                r'料金合計[：:]*\s*([0-9,]+)円',
+                r'請求額[：:]*\s*([0-9,]+)円',
+                r'支払金額[：:]*\s*([0-9,]+)円',
+                r'合計\s*([0-9,]+)円',
+                r'請求\s*([0-9,]+)円',
+                r'月額\s*([0-9,]+)円',
+                r'料金\s*([0-9,]+)円',
+                r'([0-9,]+)\.([0-9]{2})円\s*合計',
+                r'([0-9,]+)\.([0-9]{2})円\s*請求',
+                r'([0-9,]+)\.([0-9]{2})円\s*月額',
+                r'合計[：:]*\s*([0-9,]+)\.([0-9]{2})円',
+                r'請求金額[：:]*\s*([0-9,]+)\.([0-9]{2})円',
+                r'総額[：:]*\s*([0-9,]+)\.([0-9]{2})円'
             ]
             
             for pattern in total_patterns:
@@ -1091,4 +1120,45 @@ except Exception as e:
         elif analysis.get('call_usage', 0) > 500:
             benefits.append("📞 5分かけ放題オプション推奨")
         
-        return benefits[:6]  # 最大6個のメリットを返す
+        return benefits
+    
+    def _initialize_openai_without_proxy(self, api_key: str):
+        """プロキシ設定を無効化してOpenAI APIを初期化"""
+        try:
+            import os
+            
+            # プロキシ関連の環境変数を一時的にクリア
+            proxy_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']
+            original_values = {}
+            
+            for var in proxy_vars:
+                if var in os.environ:
+                    original_values[var] = os.environ[var]
+                    del os.environ[var]
+            
+            try:
+                import openai
+                from openai import OpenAI
+                
+                version = getattr(openai, '__version__', 'unknown')
+                logger.info(f"OpenAI version: {version}")
+                
+                # v1.0+の場合は新しいクライアントを使用
+                if hasattr(openai, 'OpenAI'):
+                    client = OpenAI(api_key=api_key)
+                    logger.info("OpenAI v1.0+ client initialized successfully")
+                    return client
+                else:
+                    # v0.xの場合は従来の方法
+                    openai.api_key = api_key
+                    logger.info("OpenAI v0.x initialized successfully")
+                    return openai
+                    
+            finally:
+                # 環境変数を復元
+                for var, value in original_values.items():
+                    os.environ[var] = value
+                    
+        except Exception as e:
+            logger.error(f"OpenAI initialization without proxy failed: {str(e)}")
+            raise e

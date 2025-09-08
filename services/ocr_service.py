@@ -225,6 +225,75 @@ class OCRService:
         except Exception as e:
             logger.error(f"Error setting up Tesseract path: {str(e)}")
     
+    def _preprocess_image(self, image: Image.Image) -> Image.Image:
+        """画像前処理を改善"""
+        try:
+            import cv2
+            import numpy as np
+            
+            # PIL画像をOpenCV形式に変換
+            cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            
+            # グレースケール変換
+            gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+            
+            # ノイズ除去
+            denoised = cv2.medianBlur(gray, 3)
+            
+            # コントラスト調整
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            enhanced = clahe.apply(denoised)
+            
+            # 二値化（適応的閾値処理）
+            binary = cv2.adaptiveThreshold(enhanced, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+            
+            # OpenCV画像をPIL形式に変換
+            processed_image = Image.fromarray(binary)
+            
+            logger.info("Image preprocessing completed successfully")
+            return processed_image
+            
+        except Exception as e:
+            logger.warning(f"Image preprocessing failed, using original image: {str(e)}")
+            return image
+    
+    def _extract_text_with_multiple_configs(self, image: Image.Image) -> str:
+        """複数の設定でOCRを実行し、最良の結果を返す"""
+        configs = [
+            '--psm 6 --oem 3',  # 単一のテキストブロック
+            '--psm 4 --oem 3',  # 単一のテキスト列
+            '--psm 3 --oem 3',  # 完全なページ（デフォルト）
+            '--psm 1 --oem 3',  # 自動ページ分割とOCR
+            '--psm 12 --oem 3', # 生の行（改行なし）
+        ]
+        
+        best_text = ""
+        best_confidence = 0
+        
+        for config in configs:
+            try:
+                # テキスト抽出
+                text = pytesseract.image_to_string(image, lang='jpn+eng', config=config)
+                
+                # 信頼度取得
+                data = pytesseract.image_to_data(image, lang='jpn+eng', config=config, output_type=pytesseract.Output.DICT)
+                confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+                avg_confidence = sum(confidences) / len(confidences) / 100.0 if confidences else 0.0
+                
+                logger.info(f"OCR config '{config}': {len(text)} chars, confidence: {avg_confidence:.2f}")
+                
+                # より良い結果を選択
+                if avg_confidence > best_confidence and len(text.strip()) > 0:
+                    best_text = text
+                    best_confidence = avg_confidence
+                    
+            except Exception as e:
+                logger.warning(f"OCR config '{config}' failed: {str(e)}")
+                continue
+        
+        logger.info(f"Best OCR result: {len(best_text)} chars, confidence: {best_confidence:.2f}")
+        return best_text
+    
     def _extract_with_google_vision(self, image_path: str) -> Dict:
         """Google Cloud Vision APIでテキスト抽出"""
         try:
@@ -280,8 +349,11 @@ class OCRService:
             # 画像を読み込み
             image = Image.open(image_path)
             
-            # OCR実行
-            text = pytesseract.image_to_string(image, lang='jpn+eng')
+            # 画像前処理を改善
+            processed_image = self._preprocess_image(image)
+            
+            # OCR実行（複数の設定で試行）
+            text = self._extract_text_with_multiple_configs(processed_image)
             
             # 信頼度を取得
             data = pytesseract.image_to_data(image, lang='jpn+eng', output_type=pytesseract.Output.DICT)
