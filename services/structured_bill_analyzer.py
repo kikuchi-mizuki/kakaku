@@ -25,7 +25,7 @@ def to_amount_token(tok: str):
     return v if 1000 <= abs(v) <= 99999 else None
 
 def is_anchor_line(kind: str, text: str) -> bool:
-    """部分トークンセット一致でアンカー認定"""
+    """部分トークンセット一致でアンカー認定（強化版）"""
     t = re.sub(r"\s+", "", text.lower())
     sets = {
         "subtotal": (("小", "計"), ("課", "税", "対", "象", "額"), ("sub", "total")),
@@ -36,6 +36,15 @@ def is_anchor_line(kind: str, text: str) -> bool:
         hit = sum(1 for k in ks if k in t)
         if hit >= max(2, len(ks)//2): 
             return True
+    
+    # 追加の柔軟な検出（OCRノイズ対応）
+    if kind == "total":
+        # 単語レベルでの検出
+        total_keywords = ["請求", "合計", "total", "amount", "due"]
+        for keyword in total_keywords:
+            if keyword in t:
+                return True
+    
     return False
 
 def crop_total_roi(img_path: str) -> Optional[str]:
@@ -308,9 +317,12 @@ class StructuredBillAnalyzer:
             classified_lines = self._classify_with_carrier_dictionary(bill_lines, carrier)
             
             # 3.5. ROI処理（SoftBank票の右下total先取り）
+            print(f"ROI処理チェック: image_path={image_path}, carrier={carrier}")
             if image_path and carrier and 'softbank' in carrier.lower():
+                print("SoftBank票のROI処理を開始")
                 roi_path = crop_total_roi(image_path)
                 if roi_path:
+                    print(f"ROI画像作成成功: {roi_path}")
                     try:
                         # ROI画像でOCR実行（簡易版）
                         roi_ocr = self._extract_text_from_image(roi_path)
@@ -788,19 +800,27 @@ class StructuredBillAnalyzer:
             return None
         
         for line in bill_lines:
+            print(f"アンカー検索: '{line.label}' (金額: {line.amount})")
+            
             # 行コンテキストで除外
             if not self._is_amount_row_ok(line.label):
+                print(f"  行コンテキスト除外: {line.label}")
                 continue
             
             # 部分トークンセット一致でアンカー認定
             if not self._is_anchor_line(anchor_type, line.label):
+                print(f"  アンカー不一致: {line.label}")
                 continue
+            
+            print(f"  アンカー一致: {line.label}")
             
             # その行の右端金額を取得
             amount = self._rightmost_amount_on_line(line.label)
             if amount and self._is_valid_anchor_amount(amount, anchor_type):
                 print(f"同一行アンカー発見: '{line.label}' -> {anchor_type} = ¥{amount:,}")
                 return amount
+            else:
+                print(f"  金額無効: {amount}")
         
         print(f"同一行アンカー未発見: {anchor_type}")
         return None
