@@ -23,44 +23,11 @@ class AIDiagnosisService:
         # 構造化分析器の初期化
         self.structured_analyzer = StructuredBillAnalyzer()
         
-        # OpenAI API設定
+        # OpenAI API設定（クライアント初期化は行わずHTTPのみ使用して安定化）
         self.openai_client = None
         self.use_openai = Config.USE_OPENAI_ANALYSIS and Config.OPENAI_API_KEY
-        
         if self.use_openai:
-            try:
-                logger.info(f"Attempting to initialize OpenAI API with key: {Config.OPENAI_API_KEY[:10]}...")
-                
-                # OpenAIライブラリのインポート
-                try:
-                    from openai import OpenAI
-                    logger.info("OpenAI library imported successfully")
-                    
-                    # ライブラリのバージョン確認
-                    try:
-                        import openai
-                        logger.info(f"OpenAI library version: {getattr(openai, '__version__', 'unknown')}")
-                    except Exception:
-                        logger.info("Could not determine OpenAI library version")
-                        
-                except ImportError as e:
-                    logger.error(f"Failed to import OpenAI library: {str(e)}")
-                    raise
-                
-                # APIキーの検証
-                if not Config.OPENAI_API_KEY or len(Config.OPENAI_API_KEY) < 10:
-                    logger.error("OpenAI API key is invalid or too short")
-                    raise ValueError("Invalid OpenAI API key")
-                
-                # OpenAI APIの初期化（プロキシ設定を無効化）
-                self.openai_client = self._initialize_openai_without_proxy(Config.OPENAI_API_KEY)
-                logger.info("OpenAI API initialization completed successfully")
-                
-            except Exception as e:
-                logger.error(f"Failed to initialize OpenAI API: {str(e)}")
-                logger.error(f"Error type: {type(e).__name__}")
-                logger.info("Falling back to rule-based analysis only")
-                self.use_openai = False
+            logger.info("OpenAI analysis enabled (HTTP only). Skipping client initialization to avoid proxy issues.")
         
         self.carrier_patterns = {
             'docomo': ['ドコモ', 'NTTドコモ', 'docomo', 'DOCOMO'],
@@ -197,36 +164,14 @@ class AIDiagnosisService:
             
             # 利用可能な呼び出し経路を順に試行
             response = None
-            if self.openai_client is not None and hasattr(self.openai_client, 'chat'):
-                # 新しいAPI形式 (v1.0+)
-                response = self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1000
-                )
-            elif self.openai_client is not None and hasattr(self.openai_client, 'ChatCompletion'):
-                # 古いAPI形式 (v0.x)
-                response = self.openai_client.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "あなたは携帯料金明細の専門分析AIです。請求書の内容を正確に分析し、JSON形式で結果を返してください。"},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=1000
-                )
-            else:
-                logger.info("Using HTTP fallback for OpenAI API")
-                result_text = self._analyze_with_openai_http(prompt)
-                if not result_text:
-                    return None
-                analysis_result = json.loads(result_text)
-                analysis_result = self._validate_openai_result(analysis_result)
-                return analysis_result
+            # 常にHTTP経由で実行（プロキシ問題を回避）
+            logger.info("Using HTTP call for OpenAI API (no client)")
+            result_text = self._analyze_with_openai_http(prompt)
+            if not result_text:
+                return None
+            analysis_result = json.loads(result_text)
+            analysis_result = self._validate_openai_result(analysis_result)
+            return analysis_result
             
             result_text = response.choices[0].message.content.strip()
             logger.info(f"OpenAI response: {result_text}")
