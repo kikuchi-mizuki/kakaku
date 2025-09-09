@@ -148,7 +148,7 @@ def handle_image_message(event):
             if line_bot_api:
                 line_bot_api.push_message(
                     user_id,
-                    TextSendMessage(text="📥 受付しました。解析を開始します。結果はこのトークにお送りします。")
+                    TextSendMessage(text="📱 携帯料金明細を解析中です...\n\nしばらくお待ちください。")
                 )
         except Exception as e:
             logger.warning(f"Push warm-up message failed: {e}")
