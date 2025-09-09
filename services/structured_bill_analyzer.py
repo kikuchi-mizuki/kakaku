@@ -386,6 +386,11 @@ class StructuredBillAnalyzer:
     
     def _extract_label_and_amount(self, line: str) -> Tuple[str, Optional[float]]:
         """行からラベルと金額を抽出"""
+        # 行コンテキストで除外（日付・発行日・ご利用期間などが含まれていたら金額は使わない）
+        if not self._is_amount_row_ok(line):
+            print(f"行コンテキスト除外: {line}")
+            return line, None
+            
         # 日付や電話番号を除外するパターン
         exclude_patterns = [
             r'\d{4}[/-]\d{1,2}[/-]\d{1,2}',  # 日付 (2025/06/01)

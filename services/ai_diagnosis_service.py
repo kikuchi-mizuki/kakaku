@@ -304,7 +304,7 @@ class AIDiagnosisService:
                         {"type": "input_image", "image_url": data_url}
                     ]
                 }],
-                "response_format": {"type": "json_schema", "json_schema": {"name": "bill", "schema": schema}},
+                "text": {"format": {"type": "json_schema", "json_schema": {"name": "bill", "schema": schema}}},
                 "max_output_tokens": 600
             }
             resp = requests.post(url, headers=headers, json=payload, timeout=20, proxies={})
