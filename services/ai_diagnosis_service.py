@@ -9,10 +9,13 @@ from datetime import datetime
 from config import Config
 try:
     import requests  # HTTPフォールバック用
-    from openai import OpenAI
+    from openai import OpenAI, DefaultHttpxClient
+    import httpx
 except Exception:
     requests = None
     OpenAI = None
+    DefaultHttpxClient = None
+    httpx = None
 from services.structured_bill_analyzer import StructuredBillAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -28,22 +31,20 @@ class AIDiagnosisService:
         self.structured_analyzer = StructuredBillAnalyzer()
         
         # OpenAI client初期化
-        if OpenAI and Config.OPENAI_API_KEY:
+        if OpenAI and DefaultHttpxClient and httpx and Config.OPENAI_API_KEY:
             try:
-                # 環境変数のproxy設定をクリアしてから初期化
-                import os
-                old_proxy = os.environ.pop('HTTP_PROXY', None)
-                old_https_proxy = os.environ.pop('HTTPS_PROXY', None)
-                
-                self.client = OpenAI(api_key=Config.OPENAI_API_KEY, timeout=20.0, max_retries=2)
+                proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+                http_client = DefaultHttpxClient(
+                    proxy=proxy,  # プロキシ（不要ならNoneでOK）
+                    transport=httpx.HTTPTransport(retries=2),
+                )
+                self.client = OpenAI(
+                    api_key=Config.OPENAI_API_KEY,
+                    http_client=http_client,
+                    timeout=20.0,
+                    max_retries=2
+                )
                 logger.info("OpenAI client initialized successfully")
-                
-                # 環境変数を復元
-                if old_proxy:
-                    os.environ['HTTP_PROXY'] = old_proxy
-                if old_https_proxy:
-                    os.environ['HTTPS_PROXY'] = old_https_proxy
-                    
             except Exception as e:
                 logger.error(f"OpenAI client initialization failed: {e}")
                 self.client = None
@@ -88,7 +89,7 @@ class AIDiagnosisService:
             
             # 1. 構造化分析（最優先）
             try:
-                structured_result = self.structured_analyzer.analyze_bill(ocr_text)
+                structured_result = self.structured_analyzer.analyze_bill(ocr_text, image_path=image_path)
                 if structured_result and structured_result.get('reliable', False):
                     logger.info(f"Structured analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
                     return structured_result

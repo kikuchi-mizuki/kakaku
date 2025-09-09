@@ -143,8 +143,18 @@ def handle_image_message(event):
         
         logger.info("✅ Image saved successfully")
         
-        # 非同期で処理を実行（reply_tokenは処理完了後に使用）
-        logger.info("🚀 Starting async bill processing...")
+        # 1) "受付しました"は push（reply_tokenを使わない）
+        try:
+            if line_bot_api:
+                line_bot_api.push_message(
+                    user_id,
+                    TextSendMessage(text="📥 受付しました。解析を開始します。結果はこのトークにお送りします。")
+                )
+        except Exception as e:
+            logger.warning(f"Push warm-up message failed: {e}")
+        
+        # 2) 処理を続行
+        logger.info("🚀 Starting bill processing...")
         process_bill_async(event, image_path)
         
     except Exception as e:
@@ -158,10 +168,6 @@ def process_bill_async(event, image_path):
     logger.info("🔄 Starting bill processing...")
     
     try:
-        # 処理開始の応答
-        logger.info("📤 Sending processing message...")
-        line_service.send_processing_message(event.reply_token)
-        
         # OCR実行
         logger.info("🔍 Running OCR...")
         ocr_result = ocr_service.extract_text(image_path)

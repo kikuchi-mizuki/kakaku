@@ -4,6 +4,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,25 @@ def is_anchor_line(kind: str, text: str) -> bool:
         if hit >= max(2, len(ks)//2): 
             return True
     return False
+
+def crop_total_roi(img_path: str) -> Optional[str]:
+    """右下ROIでtotalを先取り（SoftBank票用）"""
+    try:
+        img = cv2.imread(img_path)
+        if img is None:
+            return None
+        
+        h, w = img.shape[:2]
+        x0, y0 = int(w*0.60), int(h*0.55)  # 右下1/3くらい
+        roi = img[y0:h, x0:w]
+        
+        # ROI画像を一時保存
+        roi_path = img_path.replace('.jpg', '_roi.jpg')
+        cv2.imwrite(roi_path, roi)
+        return roi_path
+    except Exception as e:
+        logger.warning(f"ROI crop failed: {e}")
+        return None
 
 class TaxCategory(Enum):
     TAXABLE = "課税"
@@ -256,7 +277,7 @@ class StructuredBillAnalyzer:
             'required_categories': [BillCategory.SUBTOTAL, BillCategory.TAX, BillCategory.TOTAL]
         }
     
-    def analyze_bill(self, ocr_text: str, carrier: str = None) -> Dict:
+    def analyze_bill(self, ocr_text: str, carrier: str = None, image_path: str = None) -> Dict:
         """請求書を構造化分析"""
         try:
             print("=== 構造化請求書分析開始 ===")
@@ -285,6 +306,40 @@ class StructuredBillAnalyzer:
             
             # 3. キャリア別語彙辞書で分類
             classified_lines = self._classify_with_carrier_dictionary(bill_lines, carrier)
+            
+            # 3.5. ROI処理（SoftBank票の右下total先取り）
+            if image_path and carrier and 'softbank' in carrier.lower():
+                roi_path = crop_total_roi(image_path)
+                if roi_path:
+                    try:
+                        # ROI画像でOCR実行（簡易版）
+                        roi_ocr = self._extract_text_from_image(roi_path)
+                        if roi_ocr:
+                            roi_lines = self._split_into_lines(roi_ocr)
+                            roi_bill_lines = self._parse_lines_to_structured_data(roi_lines, carrier)
+                            # totalアンカーを優先検索
+                            for line in roi_bill_lines:
+                                if is_anchor_line("total", line.label) and line.amount:
+                                    print(f"ROI total発見: {line.label} = ¥{line.amount:,}")
+                                    # 既存のtotalを上書き
+                                    for existing_line in classified_lines:
+                                        if existing_line.category == BillCategory.TOTAL:
+                                            existing_line.amount = line.amount
+                                            existing_line.label = line.label
+                                            break
+                                    else:
+                                        # totalが見つからない場合は追加
+                                        from dataclasses import replace
+                                        new_line = replace(line, category=BillCategory.TOTAL)
+                                        classified_lines.append(new_line)
+                                    break
+                    except Exception as e:
+                        logger.warning(f"ROI processing failed: {e}")
+                    finally:
+                        # ROI画像を削除
+                        import os
+                        if os.path.exists(roi_path):
+                            os.remove(roi_path)
             
             # 4. 金額の正規化
             normalized_lines = self._normalize_amounts(classified_lines)
@@ -790,6 +845,18 @@ class StructuredBillAnalyzer:
             print(f"行コンテキスト除外（禁止語）: {line_text}")
             return False
         return True
+    
+    def _extract_text_from_image(self, image_path: str) -> str:
+        """画像からテキストを抽出（簡易版）"""
+        try:
+            # Google Cloud Vision APIを使用（既存のOCRサービスを利用）
+            from services.ocr_service import OCRService
+            ocr_service = OCRService()
+            result = ocr_service.extract_text(image_path)
+            return result.get('text', '')
+        except Exception as e:
+            logger.warning(f"ROI OCR failed: {e}")
+            return ''
     
     def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
         """アンカー金額の妥当性チェック"""
