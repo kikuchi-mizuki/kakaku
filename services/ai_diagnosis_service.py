@@ -297,26 +297,51 @@ class AIDiagnosisService:
                 "additionalProperties": False
             }
 
-            resp = self.client.responses.create(
-                model="gpt-4o-mini",
-                input=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text",
-                         "text": "請求書の画像から『小計』『消費税(等)』『ご請求金額/合計』を、"
-                                "各ラベルと同じ行の【右端の金額】で抽出してください。"
-                                "『発行日』『期間』『番号』『%を含む行』『端末/分割/割賦/AppleCare』は無視。"
-                                "単位は円、数値のみで返してください。"},
-                        {"type": "input_image",
-                         "image_url": self._to_data_url(image_path)}
-                    ]
-                }],
-                text={"format": {
-                    "type": "json_schema",
-                    "name": "bill", 
-                    "json_schema": {"schema": schema}
-                }},
-            )
+            try:
+                # まず json_schema 版を実施
+                resp = self.client.responses.create(
+                    model="gpt-4o-mini",
+                    input=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text",
+                             "text": "請求書画像から『小計』『消費税(等)』『ご請求金額/合計』を、"
+                                    "各ラベルと同じ行の右端金額で抽出。発行日/期間/番号/%行/端末・分割・AppleCareは無視。"
+                                    "単位は円、数値のみ。"},
+                            {"type": "input_image",
+                             "image_url": self._to_data_url(image_path)}
+                        ]
+                    }],
+                    # ★ここがポイント：json_schema は format 直下に name と schema を置く
+                    text={
+                        "format": {
+                            "type": "json_schema",
+                            "name": "bill",         # ← これが無いと今回の 400 が出ます
+                            "schema": schema
+                        }
+                    },
+                    # 任意：出力が短いので安全側で
+                    max_output_tokens=150
+                )
+            except Exception as e:
+                # 400等が来たら format="json" に切替
+                logger.warning(f"JSON Schema failed, falling back to simple JSON: {e}")
+                resp = self.client.responses.create(
+                    model="gpt-4o-mini",
+                    input=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text",
+                             "text": "請求書画像から『小計』『消費税(等)』『ご請求金額/合計』を、"
+                                    "各ラベルと同じ行の右端金額で抽出。発行日/期間/番号/%行/端末・分割・AppleCareは無視。"
+                                    "単位は円、数値のみ。JSON形式で返してください。"},
+                            {"type": "input_image",
+                             "image_url": self._to_data_url(image_path)}
+                        ]
+                    }],
+                    text={"format": "json"},
+                    max_output_tokens=150
+                )
             
             data = json.loads(resp.output_text or "{}")
             s, t, tot = data.get("subtotal"), data.get("tax"), data.get("total")

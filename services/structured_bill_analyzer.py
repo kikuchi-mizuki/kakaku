@@ -69,7 +69,7 @@ def crop_total_roi(img_path: str) -> Optional[str]:
             return None
         
         h, w = img.shape[:2]
-        x0, y0 = int(w*0.58), int(h*0.50)  # 右下エリアを少し広げる
+        x0, y0 = int(w*0.62), int(h*0.40)  # 右下エリアをやや広く調整
         roi = img[y0:h, x0:w]
         
         # ROI画像を一時保存
@@ -125,15 +125,22 @@ def collect_amount_candidates(tsv):
     return cands
 
 def geometry_pick_total(cands):
-    """右端最下段で合計を選択"""
+    """右端最下段で合計を選択（5桁>4桁を優先）"""
     if not cands:
         return None
     # 右端20%にある候補に絞る
     max_x = max(x for x,_,_,_,_ in cands)
     right_cands = [c for c in cands if c[0] >= max_x * 0.8]
     use = right_cands or cands  # 無ければ全体から
-    # 最下段（y最大）を total とみなす
-    total = sorted(use, key=lambda t: (t[1], t[0]))[-1]
+    
+    # 5桁>4桁を優先して最下段を選択
+    # まず桁数でソート（5桁以上を優先）、次に位置（下段優先）
+    def sort_key(t):
+        x, y, value, _, _ = t
+        digit_count = len(str(int(value))) if value > 0 else 0
+        return (-digit_count, y, x)  # 桁数降順、y昇順、x昇順
+    
+    total = sorted(use, key=sort_key)[0]
     return total  # (x,y,value, line_key, left_text)
 
 def geometry_pick_tax_subtotal(cands, total):
