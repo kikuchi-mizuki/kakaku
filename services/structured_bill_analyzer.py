@@ -790,8 +790,10 @@ class StructuredBillAnalyzer:
         DENY_CTX = re.compile(r"発行日|ご利用|期間|締め|Billing|number|Account|%|月分|日分")
 
         if DATE_JP.search(line_text) or DATE_RAW.search(line_text):
+            print(f"行コンテキスト除外（日付）: {line_text}")
             return False
         if DENY_CTX.search(line_text):
+            print(f"行コンテキスト除外（禁止語）: {line_text}")
             return False
         return True
     
