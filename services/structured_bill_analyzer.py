@@ -40,8 +40,20 @@ def is_anchor_line(kind: str, text: str) -> bool:
     # 追加の柔軟な検出（OCRノイズ対応）
     if kind == "total":
         # 単語レベルでの検出
-        total_keywords = ["請求", "合計", "total", "amount", "due"]
+        total_keywords = ["請求", "合計", "total", "amount", "due", "請求金額", "ご請求"]
         for keyword in total_keywords:
+            if keyword in t:
+                return True
+    elif kind == "subtotal":
+        # 小計の柔軟な検出
+        subtotal_keywords = ["小計", "subtotal", "課税対象", "対象額"]
+        for keyword in subtotal_keywords:
+            if keyword in t:
+                return True
+    elif kind == "tax":
+        # 消費税の柔軟な検出
+        tax_keywords = ["消費税", "tax", "税", "vat"]
+        for keyword in tax_keywords:
             if keyword in t:
                 return True
     
@@ -326,9 +338,12 @@ class StructuredBillAnalyzer:
                     try:
                         # ROI画像でOCR実行（簡易版）
                         roi_ocr = self._extract_text_from_image(roi_path)
+                        print(f"ROI OCR結果: '{roi_ocr[:200]}...'")
                         if roi_ocr:
                             roi_lines = self._split_into_lines(roi_ocr)
+                            print(f"ROI行数: {len(roi_lines)}")
                             roi_bill_lines = self._parse_lines_to_structured_data(roi_lines, carrier)
+                            print(f"ROI構造化行数: {len(roi_bill_lines)}")
                             # totalアンカーを優先検索
                             for line in roi_bill_lines:
                                 if is_anchor_line("total", line.label) and line.amount:
@@ -879,13 +894,27 @@ class StructuredBillAnalyzer:
             return ''
     
     def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
-        """アンカー金額の妥当性チェック"""
+        """アンカー金額の妥当性チェック（調整版）"""
         if amount <= 0:
             return False
         
-        # 小さい金額のアンカー禁止（脚注・手数料の誤掴み避け）
-        if amount < 1000:
-            return False
+        # アンカー種別による閾値調整
+        if anchor_type == "total":
+            # 合計は100円以上（請求書の最小金額）
+            if amount < 100:
+                return False
+        elif anchor_type == "subtotal":
+            # 小計は50円以上
+            if amount < 50:
+                return False
+        elif anchor_type == "tax":
+            # 消費税は10円以上
+            if amount < 10:
+                return False
+        else:
+            # その他は1000円以上
+            if amount < 1000:
+                return False
         
         # 異常に大きい金額の除外
         if amount > 100000:
