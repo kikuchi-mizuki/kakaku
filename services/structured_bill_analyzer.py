@@ -814,8 +814,8 @@ class StructuredBillAnalyzer:
             
             print(f"  アンカー一致: {line.label}")
             
-            # その行の右端金額を取得
-            amount = self._rightmost_amount_on_line(line.label)
+            # 既に抽出済みの金額を使用
+            amount = line.amount
             if amount and self._is_valid_anchor_amount(amount, anchor_type):
                 print(f"同一行アンカー発見: '{line.label}' -> {anchor_type} = ¥{amount:,}")
                 return amount
