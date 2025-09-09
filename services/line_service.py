@@ -82,7 +82,7 @@ class LineService:
             self.send_error_message(reply_token)
     
     def _create_detailed_analysis_message(self, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None) -> TextSendMessage:
-        """詳細分析メッセージを作成"""
+        """詳細分析メッセージを作成（わかりやすく整理）"""
         try:
             # 基本情報
             carrier = analysis_data.get('carrier', 'Unknown') if analysis_data else 'Unknown'
@@ -96,47 +96,54 @@ class LineService:
             # キャリア名の日本語化
             carrier_jp = self._get_carrier_japanese_name(carrier)
             
-            # 詳細分析テキストの構築（スマホ対応）
-            analysis_parts = []
-            analysis_parts.append("📊 現状の月額料金とdモバイルプランご提案")
-            analysis_parts.append("=" * 30)
+            # 節約効果
+            monthly_saving = comparison_result.get('monthly_saving', 0)
+            yearly_saving = monthly_saving * 12
             
-            # 現在の状況詳細（スマホ対応）
-            analysis_parts.append(f"\n📱 【現状】{carrier_jp}")
+            # 詳細分析テキストの構築（重要度順に整理）
+            analysis_parts = []
+            
+            # 1. 結論（最重要）
+            analysis_parts.append("💰 診断結果")
+            analysis_parts.append("─" * 20)
+            if monthly_saving > 0:
+                analysis_parts.append(f"月額¥{monthly_saving:,}円の節約が可能です！")
+                analysis_parts.append(f"年間で¥{yearly_saving:,}円の節約になります。")
+            else:
+                analysis_parts.append("現在のプランが最適です。")
+            
+            # 2. 現在の状況
+            analysis_parts.append(f"\n📱 現在の状況")
+            analysis_parts.append("─" * 15)
+            analysis_parts.append(f"キャリア: {carrier_jp}")
             if current_plan != 'Unknown':
-                analysis_parts.append(f"プラン名: {current_plan}")
-            analysis_parts.append(f"月額料金: ¥{line_cost:,}円/月")
+                analysis_parts.append(f"プラン: {current_plan}")
+            analysis_parts.append(f"月額料金: ¥{line_cost:,}円")
             if terminal_cost > 0:
                 analysis_parts.append(f"端末代金: ¥{terminal_cost:,}円")
             
-            # 使用量分析
-            if data_usage > 0 or call_usage > 0:
-                analysis_parts.append("\n📈 使用量分析")
-                if data_usage > 0:
-                    analysis_parts.append(f"データ使用量: {data_usage:.1f}GB")
-                if call_usage > 0:
-                    analysis_parts.append(f"通話時間: {call_usage}分")
-            
-            # 推奨プラン詳細（スマホ対応）
-            analysis_parts.append(f"\n🎯 【ご提案】{recommended_plan['name']}")
-            analysis_parts.append(f"月額料金: ¥{recommended_plan['monthly_cost']:,}円/月")
+            # 3. 推奨プラン
+            analysis_parts.append(f"\n🎯 おすすめプラン")
+            analysis_parts.append("─" * 15)
+            analysis_parts.append(f"プラン名: {recommended_plan['name']}")
+            analysis_parts.append(f"月額料金: ¥{recommended_plan['monthly_cost']:,}円")
             if 'data_limit' in recommended_plan:
                 analysis_parts.append(f"データ容量: {recommended_plan['data_limit']}")
             if 'call_option' in recommended_plan:
-                analysis_parts.append(f"通話プラン: {recommended_plan['call_option']}")
+                analysis_parts.append(f"通話: {recommended_plan['call_option']}")
             
-            # 節約効果詳細（スマホ対応）
-            monthly_saving = comparison_result.get('monthly_saving', 0)
+            # 4. 節約効果の詳細（節約がある場合のみ）
             if monthly_saving > 0:
-                analysis_parts.append(f"\n💰 節約効果詳細")
+                analysis_parts.append(f"\n💎 節約効果の詳細")
+                analysis_parts.append("─" * 18)
                 analysis_parts.append(f"月額節約: ¥{monthly_saving:,}円")
-                analysis_parts.append(f"年間節約: ¥{monthly_saving * 12:,}円")
-                analysis_parts.append(f"10年累積: ¥{monthly_saving * 12 * 10:,}円")
-                analysis_parts.append(f"50年累積: ¥{monthly_saving * 12 * 50:,}円")
+                analysis_parts.append(f"年間節約: ¥{yearly_saving:,}円")
+                analysis_parts.append(f"10年累積: ¥{yearly_saving * 10:,}円")
+                analysis_parts.append(f"50年累積: ¥{yearly_saving * 50:,}円")
                 
-                # その金額でできることの例示（スマホ対応）
+                # その金額でできること
                 analysis_parts.append(f"\n🎁 その金額でできること")
-                yearly_saving = monthly_saving * 12
+                analysis_parts.append("─" * 18)
                 if yearly_saving >= 100000:
                     analysis_parts.append("年間: 海外旅行1回")
                 elif yearly_saving >= 50000:
@@ -159,17 +166,9 @@ class LineService:
                 else:
                     analysis_parts.append("10年累積: 高級家電一式")
             
-            # 詳細比較表示（スマホ対応）
-            if monthly_saving > 0:
-                analysis_parts.append(f"\n📊 詳細比較")
-                analysis_parts.append(f"月額料金: ¥{line_cost:,} → ¥{recommended_plan['monthly_cost']:,}")
-                if 'data_limit' in recommended_plan:
-                    current_data = f"{data_usage:.1f}GB" if data_usage > 0 else "不明"
-                    analysis_parts.append(f"データ容量: {current_data} → {recommended_plan['data_limit']}")
-                analysis_parts.append(f"月額節約: ¥{monthly_saving:,}円")
-            
-            # dモバイルのメリット（スマホ対応）
+            # 5. dモバイルのメリット
             analysis_parts.append(f"\n🌟 dモバイルのメリット")
+            analysis_parts.append("─" * 20)
             analysis_parts.append("📶 docomo回線で安定した通信品質")
             analysis_parts.append("🔄 毎日リセット型データ容量")
             analysis_parts.append("📞 かけ放題オプション充実")
@@ -177,8 +176,9 @@ class LineService:
             analysis_parts.append("🎯 シンプルで分かりやすい料金体系")
             analysis_parts.append("📱 最新スマートフォン対応")
             
-            # 解析信頼度（スマホ対応）
+            # 6. 解析信頼度（最後に表示）
             analysis_parts.append(f"\n🎯 解析信頼度")
+            analysis_parts.append("─" * 12)
             if confidence >= 0.8:
                 analysis_parts.append(f"信頼度: {confidence:.1%} (高)")
             elif confidence >= 0.6:
