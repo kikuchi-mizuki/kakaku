@@ -54,7 +54,7 @@ class LineService:
             logger.error(f"Error sending error message: {str(e)}")
     
     def send_analysis_result(self, reply_token: str, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None):
-        """解析結果をFlex Messageで送信（AI診断対応）"""
+        """解析結果を送信（テキストメッセージのみ）"""
         try:
             # シンプルな結論メッセージ
             conclusion_message = self._create_simple_conclusion_message(bill_data, recommended_plan, comparison_result)
@@ -62,14 +62,11 @@ class LineService:
             # 詳細分析メッセージ（テキスト）
             detailed_analysis = self._create_detailed_analysis_message(bill_data, recommended_plan, comparison_result, analysis_data)
             
-            # メイン結果のFlex Message
+            # メイン結果のFlex Message（アクションボタン付き）
             main_result = self._create_enhanced_main_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
-            # 詳細結果のFlex Message
-            detail_result = self._create_enhanced_detail_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
-            
-            # メッセージを送信
-            self.line_bot_api.reply_message(reply_token, [conclusion_message, detailed_analysis, main_result, detail_result])
+            # テキストメッセージのみで送信（Flex Messageの詳細分析は削除）
+            self.line_bot_api.reply_message(reply_token, [conclusion_message, detailed_analysis, main_result])
             
         except LineBotApiError as e:
             if "Invalid reply token" in str(e):
