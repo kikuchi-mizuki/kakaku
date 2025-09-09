@@ -84,7 +84,7 @@ def crop_total_roi(img_path: str) -> Optional[str]:
 AMT = re.compile(r"^\s*[¥￥]?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*$")
 
 def _to_amt(tok: str):
-    """金額トークンの妥当性チェック（幾何学用）"""
+    """金額トークンの妥当性チェック（幾何学用・調整版）"""
     s = tok.replace("￥", "¥").replace(",", "").strip()
     if not AMT.match(s): 
         return None
@@ -92,12 +92,15 @@ def _to_amt(tok: str):
         v = float(re.sub(r"[^\d\.-]", "", s))
     except:
         return None
-    return v if (1000 <= v <= 99999) else None  # 1,000〜99,999円だけ
+    # より柔軟な範囲（100円〜99,999円）
+    return v if (100 <= v <= 99999) else None
 
 def collect_amount_candidates(tsv):
     """TSVから金額候補を収集"""
     cands = []  # (x_right, y_center, value, line_key, left_context)
     n = len(tsv["text"])
+    print(f"TSV解析開始: {n} トークン")
+    
     for i in range(n):
         txt = tsv["text"][i].strip()
         if not txt: 
@@ -116,6 +119,9 @@ def collect_amount_candidates(tsv):
         idxs = [j for j in range(n) if (tsv["page_num"][j], tsv["block_num"][j], tsv["par_num"][j], tsv["line_num"][j]) == line_key]
         left_text = "".join(tsv["text"][j] for j in idxs if int(tsv["left"][j]) < (x - int(tsv["width"][i])))
         cands.append((x, y, v, line_key, left_text))
+        print(f"金額候補発見: '{txt}' = ¥{v:,} (信頼度: {conf}, 座標: {x},{y})")
+    
+    print(f"金額候補総数: {len(cands)}")
     return cands
 
 def geometry_pick_total(cands):
@@ -1094,8 +1100,14 @@ class StructuredBillAnalyzer:
         # 幾何学的フォールバックで金額を決定
         if image_path:
             try:
+                print("幾何学フォールバック開始: TSV取得中...")
                 tsv = self._extract_tsv_from_image(image_path)
                 if tsv:
+                    print(f"TSV取得成功: {len(tsv.get('text', []))} トークン")
+                    # TSVの内容をデバッグ
+                    text_tokens = [t for t in tsv.get('text', []) if t.strip()]
+                    print(f"TSVテキストトークン: {text_tokens[:10]}...")
+                    
                     amount, confidence = decide_amount_with_geometry(tsv, anchors)
                     if amount is not None and confidence >= 0.8:
                         print(f"幾何学フォールバック成功: ¥{amount:,} (信頼度: {confidence:.2f})")
@@ -1104,6 +1116,9 @@ class StructuredBillAnalyzer:
                     else:
                         print(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")
                         logger.warning(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")
+                else:
+                    print("TSV取得失敗")
+                    logger.warning("TSV取得失敗")
             except Exception as e:
                 print(f"幾何学フォールバックエラー: {e}")
                 logger.warning(f"幾何学フォールバックエラー: {e}")
