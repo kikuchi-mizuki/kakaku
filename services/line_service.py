@@ -99,7 +99,7 @@ class LineService:
             
             # 1. 結論（最重要）
             analysis_parts.append("💰 診断結果")
-            analysis_parts.append("─" * 20)
+            analysis_parts.append("─" * 8)
             if monthly_saving > 0:
                 analysis_parts.append(f"月額¥{monthly_saving:,}円の節約が可能です！")
                 analysis_parts.append(f"年間で¥{yearly_saving:,}円の節約になります。")
@@ -108,7 +108,7 @@ class LineService:
             
             # 2. 現在の状況
             analysis_parts.append(f"\n📱 現在の状況")
-            analysis_parts.append("─" * 15)
+            analysis_parts.append("─" * 8)
             analysis_parts.append(f"キャリア: {carrier_jp}")
             if current_plan != 'Unknown':
                 analysis_parts.append(f"プラン: {current_plan}")
@@ -118,7 +118,7 @@ class LineService:
             
             # 3. 推奨プラン
             analysis_parts.append(f"\n🎯 おすすめプラン")
-            analysis_parts.append("─" * 15)
+            analysis_parts.append("─" * 8)
             analysis_parts.append(f"プラン名: {recommended_plan['name']}")
             analysis_parts.append(f"月額料金: ¥{recommended_plan['monthly_cost']:,}円")
             if 'data_limit' in recommended_plan:
@@ -129,7 +129,7 @@ class LineService:
             # 4. 節約効果の詳細（節約がある場合のみ）
             if monthly_saving > 0:
                 analysis_parts.append(f"\n💎 節約効果の詳細")
-                analysis_parts.append("─" * 18)
+                analysis_parts.append("─" * 8)
                 analysis_parts.append(f"月額節約: ¥{monthly_saving:,}円")
                 analysis_parts.append(f"年間節約: ¥{yearly_saving:,}円")
                 analysis_parts.append(f"10年累積: ¥{yearly_saving * 10:,}円")
@@ -137,7 +137,7 @@ class LineService:
                 
                 # その金額でできること
                 analysis_parts.append(f"\n🎁 その金額でできること")
-                analysis_parts.append("─" * 18)
+                analysis_parts.append("─" * 8)
                 if yearly_saving >= 100000:
                     analysis_parts.append("年間: 海外旅行1回")
                 elif yearly_saving >= 50000:
@@ -162,7 +162,7 @@ class LineService:
             
             # 5. dモバイルのメリット
             analysis_parts.append(f"\n🌟 dモバイルのメリット")
-            analysis_parts.append("─" * 20)
+            analysis_parts.append("─" * 8)
             analysis_parts.append("📶 docomo回線で安定した通信品質")
             analysis_parts.append("🔄 毎日リセット型データ容量")
             analysis_parts.append("📞 かけ放題オプション充実")
@@ -172,7 +172,7 @@ class LineService:
             
             # 6. 解析信頼度（最後に表示）
             analysis_parts.append(f"\n🎯 解析信頼度")
-            analysis_parts.append("─" * 12)
+            analysis_parts.append("─" * 8)
             if confidence >= 0.8:
                 analysis_parts.append(f"信頼度: {confidence:.1%} (高)")
             elif confidence >= 0.6:
