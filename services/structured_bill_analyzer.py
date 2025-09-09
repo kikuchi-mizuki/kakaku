@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 import cv2
 import numpy as np
+import pytesseract
+from pytesseract import Output
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ def crop_total_roi(img_path: str) -> Optional[str]:
             return None
         
         h, w = img.shape[:2]
-        x0, y0 = int(w*0.60), int(h*0.55)  # 右下1/3くらい
+        x0, y0 = int(w*0.58), int(h*0.50)  # 右下エリアを少し広げる
         roi = img[y0:h, x0:w]
         
         # ROI画像を一時保存
@@ -77,6 +79,100 @@ def crop_total_roi(img_path: str) -> Optional[str]:
     except Exception as e:
         logger.warning(f"ROI crop failed: {e}")
         return None
+
+# レイアウトベースフォールバック（右端カラム×最下段＝合計）
+AMT = re.compile(r"^\s*[¥￥]?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*$")
+
+def _to_amt(tok: str):
+    """金額トークンの妥当性チェック（幾何学用）"""
+    s = tok.replace("￥", "¥").replace(",", "").strip()
+    if not AMT.match(s): 
+        return None
+    try:
+        v = float(re.sub(r"[^\d\.-]", "", s))
+    except:
+        return None
+    return v if (1000 <= v <= 99999) else None  # 1,000〜99,999円だけ
+
+def collect_amount_candidates(tsv):
+    """TSVから金額候補を収集"""
+    cands = []  # (x_right, y_center, value, line_key, left_context)
+    n = len(tsv["text"])
+    for i in range(n):
+        txt = tsv["text"][i].strip()
+        if not txt: 
+            continue
+        v = _to_amt(txt)
+        if v is None:
+            continue
+        conf = tsv["conf"][i]
+        conf = int(conf) if str(conf).isdigit() else 0
+        if conf < 40:  # かなり緩く
+            continue
+        x = int(tsv["left"][i]) + int(tsv["width"][i])
+        y = int(tsv["top"][i])  + int(tsv["height"][i])//2
+        line_key = (tsv["page_num"][i], tsv["block_num"][i], tsv["par_num"][i], tsv["line_num"][i])
+        # その行の「金額の左側のテキスト」を作る（アンカー補助用）
+        idxs = [j for j in range(n) if (tsv["page_num"][j], tsv["block_num"][j], tsv["par_num"][j], tsv["line_num"][j]) == line_key]
+        left_text = "".join(tsv["text"][j] for j in idxs if int(tsv["left"][j]) < (x - int(tsv["width"][i])))
+        cands.append((x, y, v, line_key, left_text))
+    return cands
+
+def geometry_pick_total(cands):
+    """右端最下段で合計を選択"""
+    if not cands:
+        return None
+    # 右端20%にある候補に絞る
+    max_x = max(x for x,_,_,_,_ in cands)
+    right_cands = [c for c in cands if c[0] >= max_x * 0.8]
+    use = right_cands or cands  # 無ければ全体から
+    # 最下段（y最大）を total とみなす
+    total = sorted(use, key=lambda t: (t[1], t[0]))[-1]
+    return total  # (x,y,value, line_key, left_text)
+
+def geometry_pick_tax_subtotal(cands, total):
+    """税・小計の推定"""
+    # total と同じ列（x差が小さい）かつ、total の上側にある金額から近い順に探索
+    tx = total[0]; ty = total[1]
+    column_near = [c for c in cands if abs(c[0]-tx) <= 60 and c[1] < ty]  # 60px以内を同一列と仮定
+    column_near.sort(key=lambda t: (abs(t[0]-tx), ty - t[1]))  # 右端に近く、縦に近い順
+    subtotal = None; tax = None
+    for _,_,v,_,left in column_near:
+        lt = left.lower().replace(" ", "")
+        if tax is None and (("税" in lt) or ("tax" in lt) or ("vat" in lt)):
+            tax = v
+        elif subtotal is None and (("小計" in lt) or ("課税対象額" in lt) or ("subtotal" in lt)):
+            subtotal = v
+        if subtotal and tax:
+            break
+    return subtotal, tax
+
+def decide_amount_with_geometry(tsv, anchors):
+    """幾何学的フォールバックで金額を決定"""
+    s, t, tot = anchors.get("subtotal"), anchors.get("tax"), anchors.get("total")
+    def vat_ok(s,t): return s and t and 0.085 <= (t/s) <= 0.115
+
+    # 1) まず従来ロジック（アンカー）で判定
+    if s and t and tot and abs((s+t) - tot) <= 5 and vat_ok(s,t):
+        return round(tot), 0.95
+    if s and t and vat_ok(s,t):
+        return round(s+t), 0.90
+    if tot:
+        return round(tot), 0.80
+
+    # 2) 失敗したら幾何フォールバック
+    cands = collect_amount_candidates(tsv)
+    pick = geometry_pick_total(cands)
+    if not pick:
+        return None, 0.0
+    _,_,total_v,_,_ = pick
+
+    # 税・小計の推定（あれば検算で上げる）
+    sub, tax = geometry_pick_tax_subtotal(cands, pick)
+    if sub and tax and abs((sub+tax) - total_v) <= 5 and vat_ok(sub, tax):
+        return round(total_v), 0.90  # 幾何+検算OK
+    # 少なくとも total 単独は採用
+    return round(total_v), 0.80
 
 class TaxCategory(Enum):
     TAXABLE = "課税"
@@ -377,8 +473,8 @@ class StructuredBillAnalyzer:
             # 6. 集約値の計算
             summary = self._calculate_summary(validated_lines)
             
-            # 7. 通信費の計算（端末代金除外）
-            line_cost = self._calculate_line_cost(validated_lines)
+            # 7. 通信費の計算（端末代金除外・幾何学フォールバック）
+            line_cost = self._calculate_line_cost(validated_lines, image_path)
             
             confidence = self._calculate_overall_confidence(validated_lines)
             print(f"分析完了: 通信費 ¥{line_cost:,}, 信頼度: {confidence:.2f}")
@@ -893,6 +989,20 @@ class StructuredBillAnalyzer:
             logger.warning(f"ROI OCR failed: {e}")
             return ''
     
+    def _extract_tsv_from_image(self, image_path: str) -> Optional[Dict]:
+        """画像からTSVデータを抽出（幾何学フォールバック用）"""
+        try:
+            img = cv2.imread(image_path)
+            if img is None:
+                return None
+            
+            # PSM 4（段落/複数ブロック向き）でTSV取得
+            tsv = pytesseract.image_to_data(img, output_type=Output.DICT, config='--psm 4')
+            return tsv
+        except Exception as e:
+            logger.warning(f"TSV extraction failed: {e}")
+            return None
+    
     def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
         """アンカー金額の妥当性チェック（調整版）"""
         if amount <= 0:
@@ -964,8 +1074,8 @@ class StructuredBillAnalyzer:
         
         return 0.0
     
-    def _calculate_line_cost(self, bill_lines: List[BillLine]) -> float:
-        """通信費の計算（同一行アンカー・値の使い回し禁止・安全側検算）"""
+    def _calculate_line_cost(self, bill_lines: List[BillLine], image_path: str = None) -> float:
+        """通信費の計算（同一行アンカー・値の使い回し禁止・安全側検算・幾何学フォールバック）"""
         # 同一行アンカーで集約値を取得（値の使い回し禁止）
         subtotal = self._find_anchor_oneline(bill_lines, "subtotal")
         tax_amount = self._find_anchor_oneline(bill_lines, "tax")
@@ -974,7 +1084,31 @@ class StructuredBillAnalyzer:
         print(f"通信費計算: 小計={subtotal or 0:,}, 消費税={tax_amount or 0:,}, 合計={total_amount or 0:,}")
         logger.info(f"通信費計算: 小計={subtotal or 0:,}, 消費税={tax_amount or 0:,}, 合計={total_amount or 0:,}")
         
-        # 組合せフィットで最良セットを選ぶ
+        # アンカー結果を辞書にまとめる
+        anchors = {
+            "subtotal": subtotal,
+            "tax": tax_amount,
+            "total": total_amount
+        }
+        
+        # 幾何学的フォールバックで金額を決定
+        if image_path:
+            try:
+                tsv = self._extract_tsv_from_image(image_path)
+                if tsv:
+                    amount, confidence = decide_amount_with_geometry(tsv, anchors)
+                    if amount is not None and confidence >= 0.8:
+                        print(f"幾何学フォールバック成功: ¥{amount:,} (信頼度: {confidence:.2f})")
+                        logger.info(f"幾何学フォールバック成功: ¥{amount:,} (信頼度: {confidence:.2f})")
+                        return amount
+                    else:
+                        print(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")
+                        logger.warning(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")
+            except Exception as e:
+                print(f"幾何学フォールバックエラー: {e}")
+                logger.warning(f"幾何学フォールバックエラー: {e}")
+        
+        # 従来の組合せフィットで最良セットを選ぶ
         best_result = self._find_best_combination(subtotal, tax_amount, total_amount)
         
         if best_result['status'] == 'reliable':
