@@ -689,23 +689,22 @@ class StructuredBillAnalyzer:
     
     def _find_anchor_oneline(self, bill_lines: List[BillLine], anchor_type: str) -> Optional[float]:
         """アンカー語と同じ行にある最右の金額を取得（同一行限定・確実版）"""
-        ANCHORS = {
-            "subtotal": r"(小計|課税対象額|subtotal)",
-            "tax": r"(消費税(等)?|tax|vat)",
-            "total": r"((合計)?請求(額|金額)|ご請求金額|請求金額|合計|amount due|total amount|total due|total)"
+        ANCHOR_TOKENS = {
+            "subtotal": [{"小","計"}, {"課","税","対","象","額"}, {"sub","total"}],
+            "tax":      [{"消","費","税"}, {"tax"}, {"vat"}],
+            "total":    [{"請","求","金","額"}, {"合","計"}, {"amount","due"}, {"total","amount"}, {"total","due"}],
         }
-        EXCLUDES = re.compile(r"(発行日|\b\d{4}年|\b\d{1,2}月|\b\d{1,2}日|ご利用|期間|Billing number|Account|番号|%|％)")
         
-        if anchor_type not in ANCHORS:
+        if anchor_type not in ANCHOR_TOKENS:
             return None
         
-        pattern = re.compile(ANCHORS[anchor_type])
-        
         for line in bill_lines:
-            # 除外語を含む行はアンカー禁止
-            if EXCLUDES.search(line.label):
+            # 行コンテキストで除外
+            if not self._is_amount_row_ok(line.label):
                 continue
-            if not pattern.search(line.label):
+            
+            # 部分トークンセット一致でアンカー認定
+            if not self._is_anchor_line(anchor_type, line.label):
                 continue
             
             # その行の右端金額を取得
@@ -716,9 +715,28 @@ class StructuredBillAnalyzer:
         
         print(f"同一行アンカー未発見: {anchor_type}")
         return None
+
+    def _is_anchor_line(self, kind: str, text: str) -> bool:
+        """部分トークンのセット一致でアンカー認定（OCRゆらぎに強い）"""
+        ANCHOR_TOKENS = {
+            "subtotal": [{"小","計"}, {"課","税","対","象","額"}, {"sub","total"}],
+            "tax":      [{"消","費","税"}, {"tax"}, {"vat"}],
+            "total":    [{"請","求","金","額"}, {"合","計"}, {"amount","due"}, {"total","amount"}, {"total","due"}],
+        }
+        
+        if kind not in ANCHOR_TOKENS:
+            return False
+            
+        t = re.sub(r"\s+", "", text.lower())
+        # 例:「ご請求金額」→ {'請','求','金','額'} のうち2字以上
+        for token_set in ANCHOR_TOKENS[kind]:
+            hit = sum(1 for k in token_set if k in t)
+            if hit >= max(2, len(token_set)//2):   # 2個以上一致でOK
+                return True
+        return False
     
     def _rightmost_amount_on_line(self, text: str) -> Optional[float]:
-        """行内の右端金額を取得"""
+        """行内の右端金額を取得（強化版）"""
         AMOUNT_RE = re.compile(r"[¥￥]?\s*-?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
         candidates = AMOUNT_RE.findall(text)
         
@@ -727,7 +745,7 @@ class StructuredBillAnalyzer:
         
         # 右端 ≒ 最後のヒットを優先
         for token in reversed(candidates):
-            amount = self._to_amount(token)
+            amount = self._to_amount_token(token)
             if amount is not None:
                 return amount
         
@@ -735,16 +753,42 @@ class StructuredBillAnalyzer:
     
     def _to_amount(self, s: str) -> Optional[float]:
         """文字列を金額に変換（妥当性チェック付き）"""
-        s = s.replace("￥", "¥").replace(",", "")
+        return self._to_amount_token(s)
+
+    def _to_amount_token(self, token: str) -> Optional[float]:
+        """金額トークンの採用条件を強化（ID/電話番号/日付/コードを除外）"""
+        AMT_TOKEN = re.compile(r"^\s*[¥￥]?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*$")
+        ID_LIKE = re.compile(r"\d+-\d+|\d{3,}[-・.]\d{2,}")   # 例: 3059-0377
+        PCT = re.compile(r"%")                              # パーセント
+        DATE_JP = re.compile(r"\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日")
+        DATE_RAW = re.compile(r"\b20\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b")  # 20250711
+        DENY_CTX = re.compile(r"発行日|ご利用|期間|締め|Billing|number|Account|%|月分|日分")
+
+        t = token.replace("￥","¥").replace(",","").strip()
+        if not AMT_TOKEN.match(t):                        # 形が金額っぽくない
+            return None
+        if ID_LIKE.search(t):                             # ハイフン等を含むID風
+            return None
         try:
-            digits = re.sub(r"[^\d\.-]", "", s)
-            if not re.search(r"\d", digits):
-                return None
-            v = float(digits)
-            # 妥当域: 1,000〜99,999円（電話番号/ID/日付を排除）
-            return v if 1000 <= abs(v) <= 99999 else None
+            v = float(re.sub(r"[^\d\.-]", "", t))
         except:
             return None
+        # 妥当域（電話番号や脚注回避）
+        if not (1000 <= abs(v) <= 99999):
+            return None
+        return v
+
+    def _is_amount_row_ok(self, line_text: str) -> bool:
+        """行コンテキストで除外（日付・発行日・ご利用期間などが含まれていたら金額は使わない）"""
+        DATE_JP = re.compile(r"\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日")
+        DATE_RAW = re.compile(r"\b20\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b")
+        DENY_CTX = re.compile(r"発行日|ご利用|期間|締め|Billing|number|Account|%|月分|日分")
+
+        if DATE_JP.search(line_text) or DATE_RAW.search(line_text):
+            return False
+        if DENY_CTX.search(line_text):
+            return False
+        return True
     
     def _is_valid_anchor_amount(self, amount: float, anchor_type: str) -> bool:
         """アンカー金額の妥当性チェック"""
