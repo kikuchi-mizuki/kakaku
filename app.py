@@ -157,7 +157,7 @@ def process_bill_async(event, image_path):
         
         # AI診断による詳細分析
         logger.info("🤖 Running AI diagnosis...")
-        analysis_data = ai_diagnosis_service.analyze_bill_with_ai(ocr_result['text'])
+        analysis_data = ai_diagnosis_service.analyze_bill_with_ai(ocr_text=ocr_result['text'], image_path=image_path)
         logger.info(f"🧠 AI diagnosis completed: {analysis_data.get('carrier', 'Unknown')} - ¥{analysis_data.get('line_cost', 0):,}")
         
         # 低信頼度の場合は後続処理をスキップし、案内のみ送信

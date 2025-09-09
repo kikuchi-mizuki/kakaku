@@ -64,6 +64,9 @@ class Config:
     # OpenAI API設定（オプション）
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     USE_OPENAI_ANALYSIS = os.getenv('USE_OPENAI_ANALYSIS', 'false').lower() == 'true'
+    # OpenAI Vision（画像+テキスト併用）設定（オプション）
+    USE_OPENAI_VISION = os.getenv('USE_OPENAI_VISION', 'false').lower() == 'true'
+    OPENAI_VISION_MODEL = os.getenv('OPENAI_VISION_MODEL', 'gpt-4o-mini')
     
     # プラン選定設定
     EXCLUDE_S_PLAN = os.getenv('EXCLUDE_S_PLAN', 'true').lower() == 'true'

@@ -86,7 +86,7 @@ class AIDiagnosisService:
             'データプラン', '通話プラン', '回線使用料', 'サービス使用料'
         ]
 
-    def analyze_bill_with_ai(self, ocr_text: str) -> Dict:
+    def analyze_bill_with_ai(self, ocr_text: str, image_path: Optional[str] = None) -> Dict:
         """AI診断による請求書分析（構造化分析統合）"""
         try:
             logger.info("Starting AI diagnosis of bill")
@@ -99,6 +99,19 @@ class AIDiagnosisService:
                     return structured_result
                 else:
                     logger.warning("Structured analysis failed or not reliable")
+                    # 1.5 OpenAI Vision（有効時のみ）
+                    if Config.USE_OPENAI_VISION and image_path and os.path.exists(image_path) and Config.OPENAI_API_KEY:
+                        try:
+                            logger.info("Attempting OpenAI Vision analysis...")
+                            vision_result = self._analyze_with_openai_vision(image_path, ocr_text)
+                            if vision_result and vision_result.get('confidence', 0) >= Config.AI_CONFIDENCE_THRESHOLD and vision_result.get('line_cost', 0) > 0:
+                                vision_result['reliable'] = True
+                                logger.info("OpenAI Vision analysis succeeded and passed confidence threshold")
+                                return vision_result
+                            else:
+                                logger.warning("OpenAI Vision analysis failed or low confidence")
+                        except Exception as ve:
+                            logger.warning(f"OpenAI Vision analysis error: {str(ve)}")
                     # 信頼度が低い場合は適切なエラーメッセージを返す
                     return {
                         'carrier': 'Unknown',
@@ -228,6 +241,67 @@ class AIDiagnosisService:
             
         except Exception as e:
             logger.error(f"Error in OpenAI analysis: {str(e)}")
+            return None
+
+    def _analyze_with_openai_vision(self, image_path: str, ocr_text: str) -> Optional[Dict]:
+        """OpenAI Vision (multimodal) で画像+テキストを解析し、構造化結果を返す"""
+        try:
+            if requests is None:
+                logger.error("requests library is not available for Vision HTTP call")
+                return None
+            if not os.path.exists(image_path):
+                logger.error(f"Image not found for Vision analysis: {image_path}")
+                return None
+            import base64
+            with open(image_path, 'rb') as f:
+                b64 = base64.b64encode(f.read()).decode('utf-8')
+            model = Config.OPENAI_VISION_MODEL or 'gpt-4o-mini'
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            system_prompt = (
+                "あなたは携帯料金明細の専門分析AIです。画像とOCRテキストを使って、"
+                "行ごとに label, amount(normalized), tax_category, bill_category(base|voice|data|discount|option|fee|device|tax|subtotal|total) をJSON配列で返し、"
+                "さらに subtotal, taxable, tax, total の集計を返してください。"
+                "ビジネスルール: deviceは通信費から除外、discountは負、subtotal+tax≈total(±5円)、"
+                "不整合時は集計行を優先。端末費用はline_costに含めない。"
+            )
+            user_prompt = (
+                "以下はOCRテキストです。画像と併せて厳密に分析してください。\n\n" + ocr_text +
+                "\n\n出力は次のJSON: {\n"
+                "  \"lines\": [{\"label\": str, \"amount\": number, \"tax_category\": \"tax_included|tax_excluded|unknown\", \"bill_category\": str}],\n"
+                "  \"summary\": {\"subtotal\": number, \"tax\": number, \"total\": number},\n"
+                "  \"carrier\": str, \"current_plan\": str, \"line_cost\": number, \"terminal_cost\": number, \"confidence\": number\n"
+                "}\n"
+                "注意: deviceはline_costから除外し、discountは負。JSONのみ返してください。"
+            )
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                    ]}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 1200
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=45, proxies={})
+            if resp.status_code != 200:
+                logger.error(f"OpenAI Vision HTTP failed: {resp.status_code} {resp.text}")
+                return None
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            logger.info(f"OpenAI Vision raw response: {content[:300]}...")
+            result = json.loads(content)
+            # 簡易バリデーションと補完
+            result = self._validate_openai_result(result)
+            return result
+        except Exception as e:
+            logger.error(f"OpenAI Vision analysis exception: {str(e)}")
             return None
 
     def _analyze_with_openai_http(self, prompt: str) -> Optional[str]:
