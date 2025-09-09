@@ -690,10 +690,11 @@ class StructuredBillAnalyzer:
     def _find_anchor_oneline(self, bill_lines: List[BillLine], anchor_type: str) -> Optional[float]:
         """アンカー語と同じ行にある最右の金額を取得（同一行限定・確実版）"""
         ANCHORS = {
-            "subtotal": r"(小計|課税対象額)",
-            "tax": r"(消費税(等)?)",
-            "total": r"((合計)?請求(額|金額)|ご請求金額|合計)"
+            "subtotal": r"(小計|課税対象額|subtotal)",
+            "tax": r"(消費税(等)?|tax|vat)",
+            "total": r"((合計)?請求(額|金額)|ご請求金額|請求金額|合計|amount due|total amount|total due|total)"
         }
+        EXCLUDES = re.compile(r"(発行日|\b\d{4}年|\b\d{1,2}月|\b\d{1,2}日|ご利用|期間|Billing number|Account|番号|%|％)")
         
         if anchor_type not in ANCHORS:
             return None
@@ -701,6 +702,9 @@ class StructuredBillAnalyzer:
         pattern = re.compile(ANCHORS[anchor_type])
         
         for line in bill_lines:
+            # 除外語を含む行はアンカー禁止
+            if EXCLUDES.search(line.label):
+                continue
             if not pattern.search(line.label):
                 continue
             
@@ -733,9 +737,12 @@ class StructuredBillAnalyzer:
         """文字列を金額に変換（妥当性チェック付き）"""
         s = s.replace("￥", "¥").replace(",", "")
         try:
-            v = float(re.sub(r"[^\d\.-]", "", s))
-            # 妥当域: 1〜99,999円（電話番号/IDを排除）
-            return v if 0 < abs(v) < 100000 else None
+            digits = re.sub(r"[^\d\.-]", "", s)
+            if not re.search(r"\d", digits):
+                return None
+            v = float(digits)
+            # 妥当域: 1,000〜99,999円（電話番号/ID/日付を排除）
+            return v if 1000 <= abs(v) <= 99999 else None
         except:
             return None
     
