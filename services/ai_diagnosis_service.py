@@ -238,10 +238,17 @@ class AIDiagnosisService:
             if resp.status_code != 200:
                 logger.error(f"OpenAI Vision HTTP failed: {resp.status_code} {resp.text}")
                 return None
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            try:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"].strip()
+            except Exception:
+                logger.error(f"OpenAI Vision non-JSON response body: {resp.text[:300]}...")
+                return None
             logger.info(f"OpenAI Vision raw response: {content[:300]}...")
-            result = json.loads(content)
+            result = self._parse_json_safely(content)
+            if result is None:
+                logger.error("OpenAI Vision response could not be parsed as JSON")
+                return None
             # 簡易バリデーションと補完
             result = self._validate_openai_result(result)
             return result
@@ -275,8 +282,12 @@ class AIDiagnosisService:
             if resp.status_code != 200:
                 logger.error(f"HTTP fallback failed: {resp.status_code} {resp.text}")
                 return None
-            data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            try:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+            except Exception:
+                logger.error(f"HTTP fallback returned non-JSON body: {resp.text[:300]}...")
+                return None
         except Exception as e:
             logger.error(f"HTTP fallback exception: {str(e)}")
             return None
@@ -347,6 +358,20 @@ class AIDiagnosisService:
         except Exception as e:
             logger.error(f"Error validating OpenAI result: {str(e)}")
             return None
+
+    def _parse_json_safely(self, text: str) -> Optional[Dict]:
+        """モデル応答から最初のJSONブロックを抜き出してパース（寛容パーサ）"""
+        try:
+            return json.loads(text)
+        except Exception:
+            try:
+                import re
+                match = re.search(r"\{[\s\S]*\}", text)
+                if match:
+                    return json.loads(match.group(0))
+            except Exception:
+                return None
+        return None
     
     def _analyze_with_rules(self, ocr_text: str) -> Dict:
         """ルールベース分析（フォールバック）"""
