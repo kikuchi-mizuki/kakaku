@@ -199,11 +199,39 @@ def process_bill_async(event, image_path):
                 logger.error(f"Error sending low-confidence message: {str(e)}")
             return
         
-        # 請求書解析（AI診断結果を使用）
+        # 請求書解析（Vision一次、OCRバックアップ）
         logger.info("📊 Processing bill data...")
-        bill_data = bill_processor.process_bill(ocr_result)
-        bill_data.update(analysis_data)  # AI診断結果を統合
-        logger.info(f"💰 Bill data processed: Total cost ¥{bill_data.get('total_cost', 0):,}")
+        
+        if analysis_data.get('reliable') and analysis_data.get('line_cost'):
+            # ★ Visionをそのまま採用（後段が total_cost を使う前提）
+            bill_data = {
+                "total_cost": int(round(analysis_data["line_cost"])),
+                "confidence": analysis_data.get("confidence", 0.9),
+                "carrier": analysis_data.get("carrier", "Unknown"),
+                "source": "vision"
+            }
+            logger.info(f"💰 Bill data processed: Total cost ¥{bill_data['total_cost']:,} (source=vision)")
+        else:
+            # ★ Visionがダメな時だけ従来のOCRルート
+            bill_data = bill_processor.process_bill(ocr_result)
+            bill_data.setdefault("carrier", analysis_data.get("carrier", "Unknown"))
+            bill_data["source"] = "ocr"
+            logger.info(f"💰 Bill data processed: Total cost ¥{bill_data.get('total_cost', 0):,} (source=ocr)")
+        
+        # ★ total_cost が 0/未定義なら安全側で停止（誤案内防止）
+        if not bill_data.get("total_cost") or bill_data["total_cost"] <= 0:
+            logger.warning("⛔ Total cost is 0 or invalid. Sending guidance message.")
+            try:
+                if line_bot_api:
+                    tips = [
+                        "右下の合計が写るように撮影してください",
+                        "用紙全体をフチまで入れてください（切れ・影・反射を避ける）"
+                    ]
+                    line_bot_api.push_message(event.source.user_id, TextSendMessage(text="\n".join(tips)))
+                    logger.info("Sent guidance message for invalid total cost")
+            except Exception as e:
+                logger.error(f"Error sending guidance message: {str(e)}")
+            return
         
         # プラン選定
         logger.info("🎯 Selecting recommended plan...")
