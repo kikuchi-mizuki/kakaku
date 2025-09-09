@@ -30,7 +30,7 @@ class AIDiagnosisService:
         # 構造化分析器の初期化
         self.structured_analyzer = StructuredBillAnalyzer()
         
-        # OpenAI client初期化
+        # OpenAI client初期化（DefaultHttpxClient対応）
         if OpenAI and DefaultHttpxClient and httpx and Config.OPENAI_API_KEY:
             try:
                 proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
@@ -44,11 +44,12 @@ class AIDiagnosisService:
                     timeout=20.0,
                     max_retries=2
                 )
-                logger.info("OpenAI client initialized successfully")
+                logger.info("OpenAI client initialized successfully with DefaultHttpxClient")
             except Exception as e:
                 logger.error(f"OpenAI client initialization failed: {e}")
                 self.client = None
         else:
+            logger.warning("OpenAI dependencies not available or API key not set")
             self.client = None
         
         self.carrier_patterns = {
@@ -83,78 +84,59 @@ class AIDiagnosisService:
         return f"data:{mime};base64,{b64}"
 
     def analyze_bill_with_ai(self, ocr_text: str, image_path: Optional[str] = None) -> Dict:
-        """AI診断による請求書分析（Responses API統合）"""
+        """AI診断による請求書分析（GPT一次ソース + Tesseractバックアップ）"""
         try:
-            logger.info("Starting AI diagnosis of bill")
+            logger.info("Starting AI diagnosis of bill (GPT primary)")
             
-            # 1. 構造化分析（最優先）
+            # 1. GPT Vision（一次ソース）
+            if self.client and image_path and os.path.exists(image_path):
+                try:
+                    logger.info("Attempting GPT Vision analysis (primary source)...")
+                    gpt_result = self._analyze_with_gpt_vision(image_path, ocr_text)
+                    if gpt_result and gpt_result.get('reliable', False):
+                        logger.info(f"GPT Vision analysis succeeded: {gpt_result['carrier']}, Line cost: ¥{gpt_result['line_cost']:,}")
+                        return gpt_result
+                    else:
+                        logger.warning("GPT Vision analysis failed or low confidence")
+                except Exception as ve:
+                    logger.warning(f"GPT Vision analysis error: {str(ve)}")
+            
+            # 2. Tesseract構造化分析（バックアップ）
             try:
+                logger.info("Falling back to Tesseract structured analysis...")
                 structured_result = self.structured_analyzer.analyze_bill(ocr_text, image_path=image_path)
                 if structured_result and structured_result.get('reliable', False):
-                    logger.info(f"Structured analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
+                    logger.info(f"Tesseract analysis completed: {structured_result['carrier']}, Line cost: ¥{structured_result['line_cost']:,}")
                     return structured_result
                 else:
-                    logger.warning("Structured analysis failed or not reliable")
-                    
-                    # 1.5 OpenAI Vision（Responses API）
-                    if self.client and image_path and os.path.exists(image_path):
-                        try:
-                            logger.info("Attempting OpenAI Vision analysis (Responses API)...")
-                            vision_result = self._analyze_with_openai_vision_responses(image_path, ocr_text)
-                            if vision_result and vision_result.get('reliable', False):
-                                logger.info("OpenAI Vision analysis succeeded")
-                                return vision_result
-                            else:
-                                logger.warning("OpenAI Vision analysis failed or low confidence")
-                        except Exception as ve:
-                            logger.warning(f"OpenAI Vision analysis error: {str(ve)}")
-                    
-                    # 信頼度が低い場合は適切なエラーメッセージを返す
-                    return {
-                        'carrier': 'Unknown',
-                        'line_cost': 0,
-                        'total_cost': 0,
-                        'terminal_cost': 0,
-                        'confidence': 0.0,
-                        'reliable': False,
-                        'analysis_details': structured_result.get('analysis_details', [
-                            '【分析結果】',
-                            '明細の合計が特定できませんでした',
-                            '',
-                            '【原因】',
-                            '• 画像の文字化けが激しく、アンカー（小計・消費税・合計）が読み取れません',
-                            '• 請求書の重要な部分が認識できていません',
-                            '',
-                            '【推奨対応】',
-                            '1. 画像の鮮明度を確認してください',
-                            '2. 請求書全体が写るように撮影してください',
-                            '3. 光の反射や影を避けて撮影してください',
-                            '4. より鮮明な画像で再試行してください'
-                        ])
-                    }
+                    logger.warning("Tesseract analysis also failed or not reliable")
             except Exception as e:
-                logger.warning(f"Structured analysis error: {str(e)}")
-                # 構造化分析でエラーが発生した場合も適切なエラーメッセージを返す
-                return {
-                    'carrier': 'Unknown',
-                    'line_cost': 0,
-                    'total_cost': 0,
-                    'terminal_cost': 0,
-                    'confidence': 0.0,
-                    'reliable': False,
-                    'analysis_details': [
-                        '【分析結果】',
-                        '解析中にエラーが発生しました',
-                        '',
-                        '【原因】',
-                        f'• エラー種別: {type(e).__name__}',
-                        f'• エラー内容: {str(e)}',
-                        '',
-                        '【推奨対応】',
-                        '1. 画像の鮮明度を確認してください',
-                        '2. より鮮明な画像で再試行してください'
-                    ]
-                }
+                logger.warning(f"Tesseract analysis error: {str(e)}")
+            
+            # 3. 両方失敗した場合
+            return {
+                'carrier': 'Unknown',
+                'line_cost': 0,
+                'total_cost': 0,
+                'terminal_cost': 0,
+                'confidence': 0.0,
+                'reliable': False,
+                'analysis_details': [
+                    '【分析結果】',
+                    '明細の合計が特定できませんでした',
+                    '',
+                    '【原因】',
+                    '• GPT Vision分析が失敗しました',
+                    '• Tesseract構造化分析も失敗しました',
+                    '• 画像の文字化けが激しく、アンカー（小計・消費税・合計）が読み取れません',
+                    '',
+                    '【推奨対応】',
+                    '1. 画像の鮮明度を確認してください',
+                    '2. 請求書全体が写るように撮影してください',
+                    '3. 光の反射や影を避けて撮影してください',
+                    '4. より鮮明な画像で再試行してください'
+                ]
+            }
             
         except Exception as e:
             logger.error(f"Error in AI diagnosis: {str(e)}")
@@ -296,6 +278,75 @@ class AIDiagnosisService:
         except Exception as e:
             logger.error(f"Failed to build data URL: {str(e)}")
             return None
+
+    def _analyze_with_gpt_vision(self, image_path: str, ocr_text: str) -> Optional[Dict]:
+        """GPT Vision（Responses API）で画像→JSON（小計/税/合計）を一発抽出"""
+        if not self.client:
+            logger.error("OpenAI client not available")
+            return None
+            
+        try:
+            schema = {
+                "type": "object",
+                "properties": {
+                    "subtotal": {"type": "number"},
+                    "tax": {"type": "number"},
+                    "total": {"type": "number"}
+                },
+                "required": ["subtotal", "tax", "total"],
+                "additionalProperties": False
+            }
+
+            resp = self.client.responses.create(
+                model="gpt-4o-mini",
+                input=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text",
+                         "text": "請求書の画像から『小計』『消費税(等)』『ご請求金額/合計』を、"
+                                "各ラベルと同じ行の【右端の金額】で抽出してください。"
+                                "『発行日』『期間』『番号』『%を含む行』『端末/分割/割賦/AppleCare』は無視。"
+                                "単位は円、数値のみで返してください。"},
+                        {"type": "input_image",
+                         "image_url": self._to_data_url(image_path)}
+                    ]
+                }],
+                text={"format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "bill", "schema": schema}
+                }},
+            )
+            
+            data = json.loads(resp.output_text or "{}")
+            s, t, tot = data.get("subtotal"), data.get("tax"), data.get("total")
+
+            # 最小の検算
+            def vat_ok(sv, tv): 
+                return (sv and tv) and (0.085 <= (tv/sv) <= 0.115)
+
+            reliable, amount, conf = False, 0, 0.0
+            if s and t and tot and abs((s+t)-tot) <= 5 and vat_ok(s,t):
+                reliable, amount, conf = True, round(tot), 0.95
+            elif s and t and vat_ok(s,t):
+                reliable, amount, conf = True, round(s+t), 0.90
+            elif tot and 1000 <= tot <= 99999:
+                reliable, amount, conf = True, round(tot), 0.80
+
+            return {
+                "reliable": reliable,
+                "confidence": conf,
+                "line_cost": amount,
+                "carrier": self._guess_carrier(ocr_text),
+                "analysis_details": [] if reliable else ["AIで合計を特定できませんでした。画像の右下合計が見えるよう再撮影をお願いします。"]
+            }
+        except Exception as e:
+            # 失敗したら安全側（後段はゲートで停止）
+            logger.error(f"GPT Vision analysis exception: {str(e)}")
+            return {
+                "reliable": False, "confidence": 0.0, "line_cost": 0,
+                "carrier": self._guess_carrier(ocr_text),
+                "analysis_details": [f"Visionエラー: {type(e).__name__}"]
+            }
 
     def _analyze_with_openai_vision_responses(self, image_path: str, ocr_text: str) -> Optional[Dict]:
         """OpenAI Responses APIでVision+JSON Schemaにより小計/税/合計を堅牢抽出"""

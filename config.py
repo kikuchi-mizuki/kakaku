@@ -61,12 +61,14 @@ class Config:
     AI_DIAGNOSIS_ENABLED = os.getenv('AI_DIAGNOSIS_ENABLED', 'true').lower() == 'true'
     AI_CONFIDENCE_THRESHOLD = float(os.getenv('AI_CONFIDENCE_THRESHOLD', '0.7'))
     
-    # OpenAI API設定（オプション）
+    # OpenAI API設定（GPT一次ソース）
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    USE_OPENAI_ANALYSIS = os.getenv('USE_OPENAI_ANALYSIS', 'false').lower() == 'true'
-    # OpenAI Vision（画像+テキスト併用）設定（オプション）
-    USE_OPENAI_VISION = os.getenv('USE_OPENAI_VISION', 'false').lower() == 'true'
+    USE_OPENAI_ANALYSIS = os.getenv('USE_OPENAI_ANALYSIS', 'true').lower() == 'true'  # デフォルト有効
+    # OpenAI Vision（画像+テキスト併用）設定（GPT一次ソース）
+    USE_OPENAI_VISION = os.getenv('USE_OPENAI_VISION', 'true').lower() == 'true'  # デフォルト有効
     OPENAI_VISION_MODEL = os.getenv('OPENAI_VISION_MODEL', 'gpt-4o-mini')
+    # GPT一次ソース設定
+    GPT_PRIMARY_SOURCE = os.getenv('GPT_PRIMARY_SOURCE', 'true').lower() == 'true'  # GPT一次ソース有効
     
     # プラン選定設定
     EXCLUDE_S_PLAN = os.getenv('EXCLUDE_S_PLAN', 'true').lower() == 'true'
