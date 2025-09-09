@@ -1113,6 +1113,10 @@ class StructuredBillAnalyzer:
                         print(f"幾何学フォールバック成功: ¥{amount:,} (信頼度: {confidence:.2f})")
                         logger.info(f"幾何学フォールバック成功: ¥{amount:,} (信頼度: {confidence:.2f})")
                         return amount
+                    elif amount is not None:  # 0.8未満でも金額が取れた場合
+                        print(f"幾何学フォールバック部分成功: ¥{amount:,} (信頼度: {confidence:.2f})")
+                        logger.info(f"幾何学フォールバック部分成功: ¥{amount:,} (信頼度: {confidence:.2f})")
+                        return amount
                     else:
                         print(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")
                         logger.warning(f"幾何学フォールバック失敗: amount={amount}, confidence={confidence}")

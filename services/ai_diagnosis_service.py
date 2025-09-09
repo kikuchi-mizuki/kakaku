@@ -313,7 +313,8 @@ class AIDiagnosisService:
                 }],
                 text={"format": {
                     "type": "json_schema",
-                    "json_schema": {"name": "bill", "schema": schema}
+                    "name": "bill", 
+                    "json_schema": {"schema": schema}
                 }},
             )
             
