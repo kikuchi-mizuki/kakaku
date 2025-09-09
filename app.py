@@ -5,6 +5,7 @@ from linebot.models import MessageEvent, TextMessage, ImageMessage, FlexSendMess
 import logging
 import os
 from datetime import datetime
+from functools import wraps
 
 from config import Config
 from services.line_service import LineService
@@ -14,6 +15,17 @@ from services.plan_selector import PlanSelector
 from services.cost_comparator import CostComparator
 from services.ai_diagnosis_service import AIDiagnosisService
 from utils.logger import setup_logger
+
+# 二重ゲート保険（下流処理にも信頼度チェック）
+def require_reliable(fn):
+    """信頼度チェックデコレータ"""
+    @wraps(fn)
+    def wrap(*args, **kw):
+        analysis_data = kw.get("analysis_data") or (len(args) >= 1 and args[-1])
+        if isinstance(analysis_data, dict) and (not analysis_data.get("reliable") or analysis_data.get("confidence", 0) < 0.8):
+            raise RuntimeError("unreliable_result_blocked")
+        return fn(*args, **kw)
+    return wrap
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -218,6 +230,7 @@ def process_bill_async(event, image_path):
             os.remove(image_path)
             logger.info(f"🗑️ Cleaned up temporary file: {image_path}")
 
+@require_reliable
 def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, comparison_result: dict, analysis_data: dict = None):
     """プッシュメッセージで解析結果を送信（AI診断対応）"""
     try:

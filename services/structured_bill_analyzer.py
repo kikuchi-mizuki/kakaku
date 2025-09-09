@@ -7,6 +7,35 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+# 最小ユーティリティ（OCR→アンカー抽出の最小ルール）
+DENY_CTX = re.compile(r"発行日|ご利用|期間|Billing|番号|ID|%|月分|日分")
+AMT_TOKEN = re.compile(r"^\s*[¥￥]?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*$")
+
+def to_amount_token(tok: str):
+    """金額トークンの妥当性チェック"""
+    s = tok.replace("￥", "¥").replace(",", "").strip()
+    if not AMT_TOKEN.match(s): 
+        return None
+    try:
+        v = float(re.sub(r"[^\d\.-]", "", s))
+    except: 
+        return None
+    return v if 1000 <= abs(v) <= 99999 else None
+
+def is_anchor_line(kind: str, text: str) -> bool:
+    """部分トークンセット一致でアンカー認定"""
+    t = re.sub(r"\s+", "", text.lower())
+    sets = {
+        "subtotal": (("小", "計"), ("課", "税", "対", "象", "額"), ("sub", "total")),
+        "tax": (("消", "費", "税"), ("tax"), ("vat")),
+        "total": (("請", "求", "金", "額"), ("合", "計"), ("amount", "due"), ("total", "amount"), ("total", "due")),
+    }[kind]
+    for ks in sets:
+        hit = sum(1 for k in ks if k in t)
+        if hit >= max(2, len(ks)//2): 
+            return True
+    return False
+
 class TaxCategory(Enum):
     TAXABLE = "課税"
     NON_TAXABLE = "非課税"
@@ -723,22 +752,7 @@ class StructuredBillAnalyzer:
 
     def _is_anchor_line(self, kind: str, text: str) -> bool:
         """部分トークンのセット一致でアンカー認定（OCRゆらぎに強い）"""
-        ANCHOR_TOKENS = {
-            "subtotal": [{"小","計"}, {"課","税","対","象","額"}, {"sub","total"}],
-            "tax":      [{"消","費","税"}, {"tax"}, {"vat"}],
-            "total":    [{"請","求","金","額"}, {"合","計"}, {"amount","due"}, {"total","amount"}, {"total","due"}],
-        }
-        
-        if kind not in ANCHOR_TOKENS:
-            return False
-            
-        t = re.sub(r"\s+", "", text.lower())
-        # 例:「ご請求金額」→ {'請','求','金','額'} のうち2字以上
-        for token_set in ANCHOR_TOKENS[kind]:
-            hit = sum(1 for k in token_set if k in t)
-            if hit >= max(2, len(token_set)//2):   # 2個以上一致でOK
-                return True
-        return False
+        return is_anchor_line(kind, text)
     
     def _rightmost_amount_on_line(self, text: str) -> Optional[float]:
         """行内の右端金額を取得（強化版）"""
@@ -762,32 +776,12 @@ class StructuredBillAnalyzer:
 
     def _to_amount_token(self, token: str) -> Optional[float]:
         """金額トークンの採用条件を強化（ID/電話番号/日付/コードを除外）"""
-        AMT_TOKEN = re.compile(r"^\s*[¥￥]?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*$")
-        ID_LIKE = re.compile(r"\d+-\d+|\d{3,}[-・.]\d{2,}")   # 例: 3059-0377
-        PCT = re.compile(r"%")                              # パーセント
-        DATE_JP = re.compile(r"\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日")
-        DATE_RAW = re.compile(r"\b20\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b")  # 20250711
-        DENY_CTX = re.compile(r"発行日|ご利用|期間|締め|Billing|number|Account|%|月分|日分")
-
-        t = token.replace("￥","¥").replace(",","").strip()
-        if not AMT_TOKEN.match(t):                        # 形が金額っぽくない
-            return None
-        if ID_LIKE.search(t):                             # ハイフン等を含むID風
-            return None
-        try:
-            v = float(re.sub(r"[^\d\.-]", "", t))
-        except:
-            return None
-        # 妥当域（電話番号や脚注回避）
-        if not (1000 <= abs(v) <= 99999):
-            return None
-        return v
+        return to_amount_token(token)
 
     def _is_amount_row_ok(self, line_text: str) -> bool:
         """行コンテキストで除外（日付・発行日・ご利用期間などが含まれていたら金額は使わない）"""
         DATE_JP = re.compile(r"\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日")
         DATE_RAW = re.compile(r"\b20\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b")
-        DENY_CTX = re.compile(r"発行日|ご利用|期間|締め|Billing|number|Account|%|月分|日分")
 
         if DATE_JP.search(line_text) or DATE_RAW.search(line_text):
             print(f"行コンテキスト除外（日付）: {line_text}")

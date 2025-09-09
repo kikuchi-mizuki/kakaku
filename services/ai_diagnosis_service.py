@@ -2,13 +2,17 @@ import logging
 import re
 import json
 import os
+import base64
+import mimetypes
 from typing import Dict, List, Optional
 from datetime import datetime
 from config import Config
 try:
     import requests  # HTTPフォールバック用
+    from openai import OpenAI
 except Exception:
     requests = None
+    OpenAI = None
 from services.structured_bill_analyzer import StructuredBillAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -23,11 +27,16 @@ class AIDiagnosisService:
         # 構造化分析器の初期化
         self.structured_analyzer = StructuredBillAnalyzer()
         
-        # OpenAI API設定（クライアント初期化は行わずHTTPのみ使用して安定化）
-        self.openai_client = None
-        self.use_openai = Config.USE_OPENAI_ANALYSIS and Config.OPENAI_API_KEY
-        if self.use_openai:
-            logger.info("OpenAI analysis enabled (HTTP only). Skipping client initialization to avoid proxy issues.")
+        # OpenAI client初期化
+        if OpenAI and Config.OPENAI_API_KEY:
+            try:
+                self.client = OpenAI(api_key=Config.OPENAI_API_KEY, timeout=20.0, max_retries=2)
+                logger.info("OpenAI client initialized successfully")
+            except Exception as e:
+                logger.error(f"OpenAI client initialization failed: {e}")
+                self.client = None
+        else:
+            self.client = None
         
         self.carrier_patterns = {
             'docomo': ['ドコモ', 'NTTドコモ', 'docomo', 'DOCOMO'],
@@ -53,8 +62,15 @@ class AIDiagnosisService:
             'データプラン', '通話プラン', '回線使用料', 'サービス使用料'
         ]
 
+    def _to_data_url(self, path: str) -> str:
+        """画像ファイルをbase64 data URLに変換"""
+        mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:{mime};base64,{b64}"
+
     def analyze_bill_with_ai(self, ocr_text: str, image_path: Optional[str] = None) -> Dict:
-        """AI診断による請求書分析（構造化分析統合）"""
+        """AI診断による請求書分析（Responses API統合）"""
         try:
             logger.info("Starting AI diagnosis of bill")
             
@@ -66,19 +82,20 @@ class AIDiagnosisService:
                     return structured_result
                 else:
                     logger.warning("Structured analysis failed or not reliable")
-                    # 1.5 OpenAI Vision（有効時のみ）
-                    if Config.USE_OPENAI_VISION and image_path and os.path.exists(image_path) and Config.OPENAI_API_KEY:
+                    
+                    # 1.5 OpenAI Vision（Responses API）
+                    if self.client and image_path and os.path.exists(image_path):
                         try:
-                            logger.info("Attempting OpenAI Vision analysis (Responses API JSON schema)...")
+                            logger.info("Attempting OpenAI Vision analysis (Responses API)...")
                             vision_result = self._analyze_with_openai_vision_responses(image_path, ocr_text)
-                            if vision_result and vision_result.get('confidence', 0) >= Config.AI_CONFIDENCE_THRESHOLD and vision_result.get('line_cost', 0) > 0:
-                                vision_result['reliable'] = True
-                                logger.info("OpenAI Vision analysis succeeded and passed confidence threshold")
+                            if vision_result and vision_result.get('reliable', False):
+                                logger.info("OpenAI Vision analysis succeeded")
                                 return vision_result
                             else:
                                 logger.warning("OpenAI Vision analysis failed or low confidence")
                         except Exception as ve:
                             logger.warning(f"OpenAI Vision analysis error: {str(ve)}")
+                    
                     # 信頼度が低い場合は適切なエラーメッセージを返す
                     return {
                         'carrier': 'Unknown',
@@ -269,18 +286,11 @@ class AIDiagnosisService:
 
     def _analyze_with_openai_vision_responses(self, image_path: str, ocr_text: str) -> Optional[Dict]:
         """OpenAI Responses APIでVision+JSON Schemaにより小計/税/合計を堅牢抽出"""
+        if not self.client:
+            logger.error("OpenAI client not available")
+            return None
+            
         try:
-            if requests is None:
-                logger.error("requests library is not available for Vision Responses API")
-                return None
-            data_url = self._to_data_url(image_path)
-            if not data_url:
-                return None
-            url = "https://api.openai.com/v1/responses"
-            headers = {
-                "Authorization": f"Bearer {Config.OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            }
             schema = {
                 "type": "object",
                 "properties": {
@@ -291,79 +301,66 @@ class AIDiagnosisService:
                 "required": ["subtotal", "tax", "total"],
                 "additionalProperties": False
             }
-            prompt_text = (
-                "この請求書から、小計・消費税・合計（いずれも円）を同一行の右端金額で抽出して、"
-                "数値だけ返して。端末分割や日付は無視。以下はOCRテキストです:\n\n" + (ocr_text or "")
-            )
-            payload = {
-                "model": Config.OPENAI_VISION_MODEL or "gpt-4o-mini",
-                "input": [{
+
+            resp = self.client.responses.create(
+                model="gpt-4o-mini",
+                input=[{
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": prompt_text},
-                        {"type": "input_image", "image_url": data_url}
+                        {"type": "input_text",
+                         "text": "この請求書から小計・消費税・合計（いずれも円）を、各ラベルと同じ行の右端の金額で抽出して。端末分割、日付、ID、%を含む行は無視。必ず数値だけを返して。"},
+                        {"type": "input_image",
+                         "image_url": self._to_data_url(image_path)}
                     ]
                 }],
-                "text": {"format": {"type": "json_schema", "json_schema": {"name": "bill", "schema": schema}}},
-                "max_output_tokens": 600
+                text={"format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "bill", "schema": schema}
+                }},
+            )
+            
+            data = json.loads(resp.output_text or "{}")
+            s, t, tot = data.get("subtotal"), data.get("tax"), data.get("total")
+
+            # 妥当性チェック（超最小）
+            def vat_ok(s, t): 
+                return (s and t) and (0.085 <= (t/s) <= 0.115)
+            reliable = False
+            amount   = None
+            if s and t and tot and abs((s+t)-tot) <= 5 and vat_ok(s,t):
+                reliable, amount = True, round(tot)
+            elif s and t and vat_ok(s,t):
+                reliable, amount = True, round(s+t)
+            elif tot and 1000 <= tot <= 99999:
+                reliable, amount = True, round(tot)
+
+            return {
+                "reliable": bool(reliable),
+                "confidence": 0.95 if reliable else 0.30,
+                "line_cost": amount or 0,
+                "carrier": self._guess_carrier(ocr_text),
+                "analysis_details": [] if reliable else ["明細の合計が特定できませんでした。画像の鮮明度と全体の写りを確認してください。"]
             }
-            resp = requests.post(url, headers=headers, json=payload, timeout=20, proxies={})
-            if resp.status_code != 200:
-                logger.error(f"OpenAI Responses API failed: {resp.status_code} {resp.text}")
-                return None
-            try:
-                data = resp.json()
-            except Exception:
-                logger.error(f"Responses API non-JSON: {resp.text[:300]}...")
-                return None
-            # output_text 取得（形式差異を吸収）
-            output_text = None
-            if 'output_text' in data:
-                output_text = data['output_text']
-            elif 'output' in data and isinstance(data['output'], list) and data['output']:
-                # strings may be in first text item
-                try:
-                    parts = data['output']
-                    texts = []
-                    for p in parts:
-                        if isinstance(p, dict) and p.get('type') == 'output_text' and 'text' in p:
-                            texts.append(p['text'])
-                    output_text = "\n".join(texts) if texts else None
-                except Exception:
-                    output_text = None
-            if not output_text or not str(output_text).strip():
-                logger.error("Responses API returned empty output_text")
-                return None
-            result = self._parse_json_safely(str(output_text))
-            if result is None:
-                logger.error("Responses API output_text is not valid JSON")
-                return None
-            # ここから構造化結果を構築
-            subtotal = float(result.get('subtotal', 0) or 0)
-            tax = float(result.get('tax', 0) or 0)
-            total = float(result.get('total', 0) or 0)
-            # 妥当性（簡易）
-            if subtotal > 0 and tax > 0 and total > 0 and abs((subtotal + tax) - total) <= 5:
-                line_cost = total  # 端末費用は別途除外対象だが、ここでは合計から採用
-                out = {
-                    'carrier': self._detect_carrier(ocr_text or ""),
-                    'current_plan': self._extract_current_plan(ocr_text or ""),
-                    'line_cost': line_cost,
-                    'terminal_cost': 0,
-                    'total_cost': total,
-                    'data_usage': self._extract_data_usage(ocr_text or ""),
-                    'call_usage': self._extract_call_usage(ocr_text or ""),
-                    'confidence': 0.9,
-                    'analysis_details': [
-                        f"Vision抽出: subtotal={subtotal}, tax={tax}, total={total}",
-                        "右端金額＋検算一致で採用"
-                    ]
-                }
-                return out
-            return None
         except Exception as e:
-            logger.error(f"OpenAI Vision (Responses) exception: {str(e)}")
-            return None
+            # Vision失敗時は安全側で返す（後段を確実に止める）
+            logger.error(f"OpenAI Vision analysis exception: {str(e)}")
+            return {
+                "reliable": False, "confidence": 0.0, "line_cost": 0,
+                "carrier": self._guess_carrier(ocr_text),
+                "analysis_details": [f"Visionエラー: {type(e).__name__}"]
+            }
+
+    def _guess_carrier(self, text: str) -> str:
+        """キャリアを推測"""
+        t = text.lower()
+        score = {"softbank": 0, "au": 0, "docomo": 0}
+        if re.search(r"my\s*softbank|ソフトバンク|softbank", t): 
+            score["softbank"] += 2
+        if re.search(r"my\s*au|au|kddi", t): 
+            score["au"] += 2
+        if re.search(r"docomo|ドコモ|my\s*docomo", t): 
+            score["docomo"] += 2
+        return max(score, key=score.get) if max(score.values()) > 0 else "Unknown"
 
     def _analyze_with_openai_http(self, prompt: str) -> Optional[str]:
         """ライブラリ非依存のHTTPフォールバックでChat Completionsを呼び出す"""
