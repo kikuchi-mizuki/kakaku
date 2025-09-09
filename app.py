@@ -160,6 +160,27 @@ def process_bill_async(event, image_path):
         analysis_data = ai_diagnosis_service.analyze_bill_with_ai(ocr_result['text'])
         logger.info(f"🧠 AI diagnosis completed: {analysis_data.get('carrier', 'Unknown')} - ¥{analysis_data.get('line_cost', 0):,}")
         
+        # 低信頼度の場合は後続処理をスキップし、案内のみ送信
+        if not analysis_data.get('reliable', False):
+            logger.warning("⛔ Analysis marked as unreliable. Skipping plan selection and cost comparison.")
+            try:
+                if line_bot_api:
+                    details = analysis_data.get('analysis_details') or [
+                        '【分析結果】',
+                        '明細の合計が特定できませんでした。',
+                        '',
+                        '【推奨対応】',
+                        '1. 画像の鮮明度を確認してください',
+                        '2. 請求書全体が写るように撮影してください',
+                        '3. 光の反射や影を避けて撮影してください',
+                        '4. より鮮明な画像で再試行してください'
+                    ]
+                    line_bot_api.push_message(event.source.user_id, TextSendMessage(text="\n".join(details)))
+                    logger.info("Sent low-confidence guidance message to user")
+            except Exception as e:
+                logger.error(f"Error sending low-confidence message: {str(e)}")
+            return
+        
         # 請求書解析（AI診断結果を使用）
         logger.info("📊 Processing bill data...")
         bill_data = bill_processor.process_bill(ocr_result)
