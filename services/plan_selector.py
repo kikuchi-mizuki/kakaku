@@ -60,7 +60,7 @@ class PlanSelector:
         }
     
     def select_plan(self, bill_data: Dict) -> Dict:
-        """請求書データから最適なプランを選択（Sプラン除外、24時間かけ放題対応）"""
+        """請求書データから最適なプランを選択（基本はLプラン推奨）"""
         try:
             current_cost = bill_data.get('total_cost', 0)
             breakdown = bill_data.get('breakdown', {})
@@ -68,15 +68,8 @@ class PlanSelector:
             # 特徴量を抽出
             features = self._extract_features(bill_data)
             
-            # 24時間かけ放題が必要な場合はLプランを推奨
-            if self._needs_24h_unlimited(features, bill_data):
-                best_plan = self.plans['L']
-                selection_reason = "24時間かけ放題が必要なためLプランを推奨"
-            else:
-                # 通常のプラン選択ロジック（Sプランは除外）
-                recommended_plans = self._select_plans_by_features(features, current_cost)
-                best_plan = recommended_plans[0] if recommended_plans else self.plans['M']
-                selection_reason = self._get_selection_reason(features, best_plan)
+            # プラン選択ロジック
+            best_plan, selection_reason = self._select_optimal_plan(features, bill_data)
             
             return {
                 'name': best_plan.name,
@@ -91,14 +84,14 @@ class PlanSelector:
             
         except Exception as e:
             logger.error(f"Error selecting plan: {str(e)}")
-            # デフォルトでMプランを返す
+            # デフォルトでLプランを返す
             return {
-                'name': self.plans['M'].name,
-                'monthly_cost': self.plans['M'].monthly_cost,
-                'data_limit': self.plans['M'].data_limit,
-                'voice_option': self.plans['M'].voice_option,
-                'features': self.plans['M'].features,
-                'description': self.plans['M'].description,
+                'name': self.plans['L'].name,
+                'monthly_cost': self.plans['L'].monthly_cost,
+                'data_limit': self.plans['L'].data_limit,
+                'voice_option': self.plans['L'].voice_option,
+                'features': self.plans['L'].features,
+                'description': self.plans['L'].description,
                 'alternatives': [],
                 'selection_reason': 'デフォルト選択（解析エラー）'
             }
@@ -107,15 +100,19 @@ class PlanSelector:
         """請求書から特徴量を抽出"""
         breakdown = bill_data.get('breakdown', {})
         current_cost = bill_data.get('total_cost', 0)
+        data_usage = bill_data.get('data_usage', 0)  # GB
+        call_usage = bill_data.get('call_usage', 0)  # 分
         
         features = {
             'current_cost': current_cost,
+            'data_usage': data_usage,
+            'call_usage': call_usage,
             'has_voice_option': breakdown.get('voice_option', 0) > 0,
             'has_24h_unlimited': False,  # 24時間かけ放題の判定
             'has_10min_unlimited': False,  # 10分かけ放題の判定
             'has_5min_unlimited': False,  # 5分かけ放題の判定
             'voice_cost_high': breakdown.get('voice', 0) > 2000,  # 通話料が高い
-            'data_cost_high': breakdown.get('data', 0) > 3000,  # データ通信料が高い
+            'data_cost_high': breakdown.get('data', 0) > 3000 or data_usage > 60,  # データ通信料が高い or 60GB以上
             'has_discount': breakdown.get('discount', 0) < 0,  # 割引がある
             'cost_level': self._get_cost_level(current_cost)
         }
@@ -139,6 +136,23 @@ class PlanSelector:
             return 'medium'
         else:
             return 'high'
+    
+    def _select_optimal_plan(self, features: Dict, bill_data: Dict) -> tuple:
+        """最適なプランを選択（基本はLプラン推奨）"""
+        data_usage = bill_data.get('data_usage', 0)  # GB
+        call_usage = bill_data.get('call_usage', 0)  # 分
+        voice_cost = bill_data.get('breakdown', {}).get('voice', 0)
+        
+        # 1. 電話を一切使わない場合 → Mプラン
+        if call_usage == 0 and voice_cost == 0:
+            return self.plans['M'], "通話を使用しないためMプランを推奨"
+        
+        # 2. データ使用量が多い場合（月間60GB以上相当） → Xプラン
+        if data_usage > 60 or features.get('data_cost_high', False):
+            return self.plans['X'], "大容量データ使用のためXプランを推奨"
+        
+        # 3. その他の場合（基本） → Lプラン
+        return self.plans['L'], "バランスの良いLプランを推奨"
     
     def _select_plans_by_features(self, features: Dict, current_cost: int) -> List[Plan]:
         """特徴量に基づいてプランを選択（Sプラン除外）"""
