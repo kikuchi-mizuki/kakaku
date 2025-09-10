@@ -269,20 +269,14 @@ def send_push_message(user_id: str, bill_data: dict, recommended_plan: dict, com
     """プッシュメッセージで解析結果を送信（AI診断対応）"""
     try:
         if line_bot_api:
-            # シンプルな結論メッセージ
-            conclusion_message = line_service._create_simple_conclusion_message(bill_data, recommended_plan, comparison_result)
-            
             # 詳細分析メッセージ（テキスト）
             detailed_analysis = line_service._create_detailed_analysis_message(bill_data, recommended_plan, comparison_result, analysis_data)
             
-            # メイン結果のFlex Message
+            # メイン結果のFlex Message（アクションボタン付き）
             main_result = line_service._create_enhanced_main_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
             
-            # 詳細結果のFlex Message
-            detail_result = line_service._create_enhanced_detail_result_flex(bill_data, recommended_plan, comparison_result, analysis_data)
-            
             # プッシュメッセージを送信
-            line_bot_api.push_message(user_id, [conclusion_message, detailed_analysis, main_result, detail_result])
+            line_bot_api.push_message(user_id, [detailed_analysis, main_result])
             logger.info(f"Push message sent to user: {user_id}")
     except Exception as e:
         logger.error(f"Error sending push message: {str(e)}")
