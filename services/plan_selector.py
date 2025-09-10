@@ -16,46 +16,47 @@ class Plan:
 
 class PlanSelector:
     def __init__(self):
-        # dモバイルのプラン情報（2024年時点）
+        # dモバイルのプラン情報（2024年最新）
         self.plans = {
-            'M': Plan(
-                name='dモバイル M',
-                monthly_cost=2980,
-                data_limit='1日2GB',
-                voice_option='5分かけ放題',
-                features=['docomo回線', '毎日リセット型容量', '5分かけ放題'],
-                description='中量データユーザー向けのバランス型プラン'
+            'X': Plan(
+                name='dモバイル X',
+                monthly_cost=5720,  # 税込
+                data_limit='1日4GB / 月間120GB相当',
+                voice_option='オプション追加可能',
+                features=['docomo回線', '毎日リセット型容量', '大容量データ'],
+                description='大容量データユーザー向けのプレミアムプラン'
             ),
             'L': Plan(
                 name='dモバイル L',
-                monthly_cost=3980,
-                data_limit='1日4GB',
-                voice_option='5分かけ放題',
+                monthly_cost=5720,  # 税込
+                data_limit='1日2GB / 月間60GB相当',
+                voice_option='24時間かけ放題標準付帯',
+                features=['docomo回線', '毎日リセット型容量', '24時間かけ放題'],
+                description='通話重視ユーザー向けのプラン'
+            ),
+            'M': Plan(
+                name='dモバイル M',
+                monthly_cost=3520,  # 税込
+                data_limit='1日1GB / 月間30GB相当',
+                voice_option='5分かけ放題標準付帯',
                 features=['docomo回線', '毎日リセット型容量', '5分かけ放題'],
-                description='大容量データユーザー向けのプラン'
+                description='中量データユーザー向けのバランス型プラン'
             ),
-            'M_24h': Plan(
-                name='dモバイル M + 24時間かけ放題',
-                monthly_cost=3980,
-                data_limit='1日2GB',
-                voice_option='24時間かけ放題',
-                features=['docomo回線', '毎日リセット型容量', '24時間かけ放題'],
-                description='中量データ + 通話重視ユーザー向け'
-            ),
-            'L_24h': Plan(
-                name='dモバイル L + 24時間かけ放題',
-                monthly_cost=4980,
-                data_limit='1日4GB',
-                voice_option='24時間かけ放題',
-                features=['docomo回線', '毎日リセット型容量', '24時間かけ放題'],
-                description='大容量データ + 通話重視ユーザー向け'
+            'S': Plan(
+                name='dモバイル S',
+                monthly_cost=1078,  # 税込
+                data_limit='月間3GB',
+                voice_option='オプション追加可能',
+                features=['docomo回線', '月間容量制限', '低価格'],
+                description='軽量データユーザー向けのエントリープラン'
             )
         }
         
-        # オプション料金
+        # オプション料金（税込）
         self.voice_options = {
-            '24h_unlimited': 1000,  # 24時間かけ放題オプション
-            '10min_unlimited': 500,  # 10分かけ放題オプション
+            '24h_unlimited': 1870,  # 24時間かけ放題オプション
+            '10min_unlimited': 935,  # 10分かけ放題オプション
+            '5min_unlimited': 715,  # 5分かけ放題オプション
         }
     
     def select_plan(self, bill_data: Dict) -> Dict:
@@ -67,18 +68,15 @@ class PlanSelector:
             # 特徴量を抽出
             features = self._extract_features(bill_data)
             
-            # プランを選定（Sプランは除外）
-            recommended_plans = self._select_plans_by_features(features, current_cost)
-            
-            # 最適なプランを選択
-            best_plan = recommended_plans[0] if recommended_plans else self.plans['M']
-            
-            # 24時間かけ放題が必要な場合はLプランを提案
+            # 24時間かけ放題が必要な場合はLプランを推奨
             if self._needs_24h_unlimited(features, bill_data):
-                if best_plan.name == 'dモバイル M':
-                    best_plan = self.plans['L_24h']
-                elif best_plan.name == 'dモバイル L':
-                    best_plan = self.plans['L_24h']
+                best_plan = self.plans['L']
+                selection_reason = "24時間かけ放題が必要なためLプランを推奨"
+            else:
+                # 通常のプラン選択ロジック（Sプランは除外）
+                recommended_plans = self._select_plans_by_features(features, current_cost)
+                best_plan = recommended_plans[0] if recommended_plans else self.plans['M']
+                selection_reason = self._get_selection_reason(features, best_plan)
             
             return {
                 'name': best_plan.name,
@@ -87,8 +85,8 @@ class PlanSelector:
                 'voice_option': best_plan.voice_option,
                 'features': best_plan.features,
                 'description': best_plan.description,
-                'alternatives': [p.name for p in recommended_plans[1:3] if 'S' not in p.name],  # 代替案（Sプラン除外）
-                'selection_reason': self._get_selection_reason(features, best_plan)
+                'alternatives': self._get_alternatives(best_plan),  # 代替案（Sプラン除外）
+                'selection_reason': selection_reason
             }
             
         except Exception as e:
@@ -143,33 +141,27 @@ class PlanSelector:
             return 'high'
     
     def _select_plans_by_features(self, features: Dict, current_cost: int) -> List[Plan]:
-        """特徴量に基づいてプランを選択"""
+        """特徴量に基づいてプランを選択（Sプラン除外）"""
         candidates = []
         
-        # ルールベースの選定ロジック
+        # ルールベースの選定ロジック（Sプランは除外）
         
-        # 1. 通話重視ユーザー（24時間かけ放題相当 or 通話料高額）
-        if features['has_24h_unlimited'] or features['voice_cost_high']:
-            if features['data_cost_high'] or features['cost_level'] == 'high':
-                candidates.append(self.plans['L_24h'])
-                candidates.append(self.plans['M_24h'])
-            else:
-                candidates.append(self.plans['M_24h'])
-                candidates.append(self.plans['L_24h'])
-        
-        # 2. データ重視ユーザー（通信料高額 or 速度制限記載）
-        elif features['data_cost_high'] or features['cost_level'] == 'high':
+        # 1. 大容量データユーザー（通信料高額 or 高コスト）
+        if features['data_cost_high'] or features['cost_level'] == 'high':
+            candidates.append(self.plans['X'])
             candidates.append(self.plans['L'])
             candidates.append(self.plans['M'])
         
-        # 3. バランス型ユーザー（中程度のコスト）
+        # 2. 中程度のコストユーザー
         elif features['cost_level'] == 'medium':
-            candidates.append(self.plans['M'])
             candidates.append(self.plans['L'])
+            candidates.append(self.plans['M'])
+            candidates.append(self.plans['X'])
         
-        # 4. 低コストユーザー
+        # 3. 低コストユーザー
         else:
             candidates.append(self.plans['M'])
+            candidates.append(self.plans['L'])
         
         # 重複を除去
         unique_candidates = []
@@ -203,6 +195,17 @@ class PlanSelector:
         
         return False
     
+    def _get_alternatives(self, selected_plan: Plan) -> List[str]:
+        """代替案を取得（Sプラン除外）"""
+        alternatives = []
+        
+        # 選択されたプラン以外のプランを代替案として追加（Sプランは除外）
+        for plan_key, plan in self.plans.items():
+            if plan.name != selected_plan.name and plan_key != 'S':
+                alternatives.append(plan.name)
+        
+        return alternatives[:2]  # 最大2つまで
+    
     def _get_selection_reason(self, features: Dict, selected_plan: Plan) -> str:
         """選択理由を生成"""
         reasons = []
@@ -216,12 +219,12 @@ class PlanSelector:
         if features['cost_level'] == 'high':
             reasons.append("現在の料金が高額のため")
         
-        if selected_plan.name == 'dモバイル L':
+        if selected_plan.name == 'dモバイル X':
             reasons.append("大容量データプランを推奨")
+        elif selected_plan.name == 'dモバイル L':
+            reasons.append("通話重視プランを推奨")
         elif selected_plan.name == 'dモバイル M':
             reasons.append("バランス型プランを推奨")
-        elif '24時間かけ放題' in selected_plan.name:
-            reasons.append("通話重視プランを推奨")
         
         if not reasons:
             reasons.append("現在の利用状況に最適なプランを推奨")
@@ -244,12 +247,20 @@ class PlanSelector:
     
     def calculate_plan_cost(self, plan_name: str, add_24h_option: bool = False) -> int:
         """プランの月額料金を計算"""
-        if plan_name not in self.plans:
+        # プラン名からキーを検索
+        plan_key = None
+        for key, plan in self.plans.items():
+            if plan.name == plan_name:
+                plan_key = key
+                break
+        
+        if plan_key is None:
             return 0
         
-        base_cost = self.plans[plan_name].monthly_cost
+        base_cost = self.plans[plan_key].monthly_cost
         
-        if add_24h_option and '24時間かけ放題' not in plan_name:
+        # Lプランは既に24時間かけ放題が標準付帯されているため、オプション追加は不要
+        if add_24h_option and plan_key != 'L' and '24時間かけ放題' not in plan_name:
             base_cost += self.voice_options['24h_unlimited']
         
         return base_cost
